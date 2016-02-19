@@ -17,35 +17,45 @@ namespace AllReady.Models
         public string FullDescription { get; set; }
 
         [Display(Name = "Managing Organization")]
-        public int ManagingTenantId { get; set; }
-        public Tenant ManagingTenant { get; set; }
+        public int ManagingOrganizationId { get; set; }
+        public Organization ManagingOrganization { get; set; }
         [Display(Name = "Image URL")]
         public string ImageUrl { get; set; }
 
         /// <summary>
-        /// Collection of Tenants that are supporting this campaign
+        /// Collection of <see cref="Organization"/>s that are supporting this campaign
         /// </summary>
-        public List<CampaignSponsors> ParticipatingTenants { get; set; }
+        public List<CampaignSponsors> ParticipatingOrganizations { get; set; }
+
+        [Display(Name = "Time Zone")]
+        [Required]
+        public string TimeZoneId { get; set; }
 
         /// <summary>
         /// The date the campaign starts
         /// </summary>
         [Display(Name = "Start date")]
         [DisplayFormat(ApplyFormatInEditMode = true, DataFormatString = "{0:d}")]
-        public DateTime StartDateTimeUtc { get; set; }
+        public DateTimeOffset StartDateTime { get; set; }
 
         /// <summary>
         /// The date the campaign ends
         /// </summary>
         [Display(Name = "End date")]
         [DisplayFormat(ApplyFormatInEditMode = true, DataFormatString = "{0:d}")]
-        public DateTime EndDateTimeUtc { get; set; }
+        public DateTimeOffset EndDateTime { get; set; }
 
         public List<Activity> Activities { get; set; }
 
         public ApplicationUser Organizer { get; set; }
 
+        public int? CampaignImpactId { get; set; }
         public CampaignImpact CampaignImpact { get; set; }
 
+        public Location Location { get; set; }
+
+        public List<CampaignContact> CampaignContacts { get; set; }
+
+        public bool Locked { get; set; }
     }
 }

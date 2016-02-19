@@ -19,40 +19,57 @@ namespace AllReady.Areas.Admin.Features.Campaigns
         {
             var campaign = _context.Campaigns
                                   .AsNoTracking()
-                                  .Include(c => c.Activities)    
-                                  .Include(m => m.ManagingTenant)
+                                  .Include(c => c.Activities)
+                                  .Include(m => m.ManagingOrganization)
+                                  .Include(ci => ci.CampaignImpact)
+                                  .Include(c => c.CampaignContacts).ThenInclude(c => c.Contact)
+                                  .Include(l => l.Location).ThenInclude(p => p.PostalCode)
                                   .SingleOrDefault(c => c.Id == message.CampaignId);
 
             CampaignDetailModel result = null;
 
             if (campaign != null)
             {
-                result = new CampaignDetailModel()
+                result = new CampaignDetailModel
                 {
                     Id = campaign.Id,
                     Name = campaign.Name,
                     Description = campaign.Description,
-                    TenantId = campaign.ManagingTenantId,
-                    TenantName = campaign.ManagingTenant.Name,
+                    OrganizationId = campaign.ManagingOrganizationId,
+                    OrganizationName = campaign.ManagingOrganization.Name,
                     ImageUrl = campaign.ImageUrl,
-                    StartDate = campaign.StartDateTimeUtc,
-                    EndDate = campaign.EndDateTimeUtc,
+                    TimeZoneId = campaign.TimeZoneId,
+                    StartDate = campaign.StartDateTime,
+                    EndDate = campaign.EndDateTime,
+                    CampaignImpact = campaign.CampaignImpact,
+                    Location = campaign.Location.ToModel(),
+                    Locked = campaign.Locked,
                     Activities = campaign.Activities.Select(a => new ActivitySummaryModel
                     {
                         Id = a.Id,
                         Name = a.Name,
                         Description = a.Description,
-                        StartDateTime = a.StartDateTimeUtc,
-                        EndDateTime = a.EndDateTimeUtc,
+                        TimeZoneId = campaign.TimeZoneId,
+                        StartDateTime = a.StartDateTime,
+                        EndDateTime = a.EndDateTime,
                         CampaignId = campaign.Id,
                         CampaignName = campaign.Name,
-                        TenantId = campaign.ManagingTenantId,
-                        TenantName = campaign.ManagingTenant.Name,
+                        OrganizationId = campaign.ManagingOrganizationId,
+                        OrganizationName = campaign.ManagingOrganization.Name,
                         ImageUrl = a.ImageUrl
                     })
                 };
+                if (!campaign.CampaignContacts.Any())// Include isn't including
+                {
+                    campaign.CampaignContacts = _context.CampaignContacts.Include(c => c.Contact).Where(cc => cc.CampaignId == campaign.Id).ToList();
+                }
+                if (campaign.CampaignContacts?.SingleOrDefault(tc => tc.ContactType == (int)ContactTypes.Primary)?.Contact != null)
+                {
+                    result = (CampaignDetailModel)campaign.CampaignContacts?.SingleOrDefault(tc => tc.ContactType == (int)ContactTypes.Primary)?.Contact.ToEditModel(result);
+                }
             }
             return result;
         }
+         
     }
 }

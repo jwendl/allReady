@@ -6,8 +6,14 @@ using AllReady.Models;
 using AllReady.ViewModels;
 using Microsoft.AspNet.Hosting;
 using Microsoft.Data.Entity;
-using Microsoft.Framework.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection;
 using Xunit;
+using Moq;
+using System.Security.Claims;
+using System.Security.Principal;
+using AllReady.Features.Notifications;
+using MediatR;
+using Microsoft.AspNet.Http;
 
 namespace AllReady.UnitTest
 {
@@ -16,6 +22,7 @@ namespace AllReady.UnitTest
         private static IServiceProvider _serviceProvider;
         private static bool populatedData = false;
         private static int activitiesAdded = 0;
+        private Mock<IMediator> _bus;
 
         public ActivityApiControllerTest()
         {
@@ -67,6 +74,74 @@ namespace AllReady.UnitTest
             Assert.Equal(activityViewModel.EndDateTime, DateTime.MaxValue.ToUniversalTime());
             Assert.Equal(activityViewModel.StartDateTime, DateTime.MinValue.ToUniversalTime());
         }
+        [Fact]
+        public void ActivityDoesExist()
+        {
+            // Arrange
+            ActivityApiController controller = GetActivityController();
+
+            // Act
+            int recordId = 1;
+            var activityViewModel = controller.Get(recordId);
+
+            Assert.NotNull(activityViewModel);
+
+        }
+
+        [Fact]
+        public void HandlesInvalidActivityId()
+        {
+            // Arrange
+            ActivityApiController controller = GetActivityController();
+
+            // Act
+            int recordId = -1;
+            var activityViewModel = controller.Get(recordId);
+
+            Assert.Null(activityViewModel);
+
+        }
+
+        [Fact]
+        public async void UnregisterActivityShouldRemoveActivitySignup()
+        {
+            // Arrange
+            int recordId = 5;
+            var controller = GetActivityController()
+                .WithUser(recordId.ToString());
+
+            // Act
+            var result = await controller.UnregisterActivity(recordId);
+
+            // Assert
+            Assert.NotNull(result);
+            var context = _serviceProvider.GetService<AllReadyContext>();
+            var numOfUsersSignedUp = context.Activities
+                .First(e => e.Id == recordId)
+                .UsersSignedUp.Count;
+            Assert.Equal(0, numOfUsersSignedUp);
+        }
+
+
+        [Fact]
+        public async void UnregisterActivityShouldRemoveTaskSignup()
+        {
+            // Arrange
+            int recordId = 5;
+            var controller = GetActivityController()
+                .WithUser(recordId.ToString());
+
+            // Act
+            var result = await controller.UnregisterActivity(recordId);
+
+            // Assert
+            Assert.NotNull(result);
+            var context = _serviceProvider.GetService<AllReadyContext>();
+            var numOfTasksSignedUpFor = context.TaskSignups
+                .Where(e => e.Task.Activity.Id == recordId)
+                .Count();
+            Assert.Equal(0, numOfTasksSignedUpFor);
+        }
 
         #region Helper Methods
 
@@ -74,7 +149,10 @@ namespace AllReady.UnitTest
         {
             var allReadyContext = _serviceProvider.GetService<AllReadyContext>();
             var allReadyDataAccess = new AllReadyDataAccessEF7(allReadyContext);
-            var controller = new ActivityApiController(allReadyDataAccess, null);
+
+            _bus = new Mock<IMediator>();
+            var controller = new ActivityApiController(allReadyDataAccess, _bus.Object);
+
             PopulateData(allReadyContext);
             return controller;
         }
@@ -89,7 +167,6 @@ namespace AllReady.UnitTest
                 {
                     context.Add(activity);
                     context.Add(activity.Campaign);
-                    context.Add(activity.Tenant);
                     activitiesAdded++;
                 }
                 context.SaveChanges();
@@ -101,13 +178,20 @@ namespace AllReady.UnitTest
         {
             public const string CampaignNameFormat = "Campaign {0}";
             public const string CampaignDescriptionFormat = "Description for campaign {0}";
-            public const string TenantNameFormat = "Test Tenant {0}";
+            public const string OrganizationNameFormat = "Test Organization {0}";
             public const string ActivityNameFormat = "Activity {0}";
             public const string ActivityDescriptionFormat = "Description for activity {0}";
+            public const string UserNameFormat = "User {0}";
+            public const string TaskDescriptionFormat = "Task {0}";
 
-            private static int id = 1;
             public static Activity[] GetActivities()
             {
+                var users = Enumerable.Range(1, 10).Select(n =>
+                    new ApplicationUser()
+                    {
+                        Id = n.ToString(),
+                        Name = string.Format(UserNameFormat, n)
+                    }).ToArray();
                 var campaigns = Enumerable.Range(1, 10).Select(n =>
                     new Campaign()
                     {
@@ -116,10 +200,10 @@ namespace AllReady.UnitTest
                         Id = n
                     }).ToArray();
 
-                var tenants = Enumerable.Range(1, 10).Select(n =>
-                    new Tenant()
+                var organizations = Enumerable.Range(1, 10).Select(n =>
+                    new Organization()
                     {
-                        Name = string.Format(TenantNameFormat, n),
+                        Name = string.Format(OrganizationNameFormat, n),
                         Campaigns = new List<Campaign>(new[] { campaigns[n - 1] })
                     }).ToArray();
 
@@ -127,12 +211,40 @@ namespace AllReady.UnitTest
                     new Activity()
                     {
                         Campaign = campaigns[n - 1],
-                        EndDateTimeUtc = DateTime.MaxValue.ToUniversalTime(),
-                        StartDateTimeUtc = DateTime.MinValue.ToUniversalTime(),
+                        EndDateTime = DateTime.MaxValue.ToUniversalTime(),
+                        StartDateTime = DateTime.MinValue.ToUniversalTime(),
                         Name = string.Format(ActivityNameFormat, n),
                         Description = string.Format(ActivityDescriptionFormat, n),
-                        Tenant = tenants[n - 1],
-                        Id = id++
+                        Id = n,
+                        UsersSignedUp = new List<ActivitySignup>()
+                        {
+                            new ActivitySignup()
+                            {
+                                User = users[n - 1],
+                                SignupDateTime = DateTime.Now.ToUniversalTime(),
+                                PreferredEmail = "foo@foo.com",
+                                PreferredPhoneNumber = "(555) 555-5555"
+                            }
+                        },
+                        Tasks = new List<AllReadyTask>()
+                        {
+                            new AllReadyTask()
+                            {
+                                Id = n,
+                                Name = string.Format(TaskDescriptionFormat,n),
+                                NumberOfVolunteersRequired = 1,
+                                Organization = organizations[n - 1],
+                                AssignedVolunteers = new List<TaskSignup>()
+                                {
+                                    new TaskSignup()
+                                    {
+                                        User = users[n - 1],
+                                        StatusDateTimeUtc = DateTime.Now.ToUniversalTime(),
+                                        Status = "Ready To Rock And Roll"
+                                    }
+                                }
+                            }
+                        }
                     }).ToArray();
                 return activities;
             }

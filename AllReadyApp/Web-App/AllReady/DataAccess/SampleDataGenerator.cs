@@ -5,7 +5,7 @@ using System.Security.Claims;
 using System.Threading.Tasks;
 using AllReady.Services;
 using Microsoft.AspNet.Identity;
-using Microsoft.Framework.OptionsModel;
+using Microsoft.Extensions.OptionsModel;
 
 namespace AllReady.Models
 {
@@ -13,12 +13,14 @@ namespace AllReady.Models
     {
         private readonly AllReadyContext _context;
         private readonly SampleDataSettings _settings;
+        private readonly GeneralSettings _generalSettings;
         private readonly UserManager<ApplicationUser> _userManager;
 
-        public SampleDataGenerator(AllReadyContext context, IOptions<SampleDataSettings> options, UserManager<ApplicationUser> userManager)
+        public SampleDataGenerator(AllReadyContext context, IOptions<SampleDataSettings> options, IOptions<GeneralSettings> generalSettings, UserManager<ApplicationUser> userManager)
         {
             _context = context;
             _settings = options.Value;
+            _generalSettings = generalSettings.Value;
             _userManager = userManager;
         }
 
@@ -27,7 +29,7 @@ namespace AllReady.Models
         {
             // Avoid polluting the database if there's already something in there.
             if (_context.Locations.Any() ||
-                _context.Tenants.Any() ||
+                _context.Organizations.Any() ||
                 _context.Tasks.Any() ||
                 _context.Campaigns.Any() ||
                 _context.Activities.Any() ||
@@ -35,31 +37,16 @@ namespace AllReady.Models
                 _context.Skills.Any() ||
                 _context.Resources.Any())
             {
-                // Attempt to populate CampaignImpactTypes:
-                InsertCampaignImpactTypes(_context);
-                _context.SaveChanges();
                 return;
             }
-            // new up some data
-            List<Tenant> tenants = new List<Tenant>();
 
             #region postalCodes
             var existingPostalCode = _context.PostalCodes.ToList();
             _context.PostalCodes.AddRange(GetPostalCodes(existingPostalCode));
-            //_context.SaveChanges();
             #endregion
 
-            #region Skills
-            var skills = new List<Skill>();
-            var existingSkills = _context.Skills.ToList();
-            var medical = GetSkill(skills, existingSkills, "Medical", null, "specific enough, right?");
-            var cprCertified = GetSkill(skills, existingSkills, "CPR Certified", medical, "ha ha ha ha, stayin alive");
-            var md = GetSkill(skills, existingSkills, "MD", medical, "Trust me, I'm a doctor");
-            var surgeon = GetSkill(skills, existingSkills, "Surgeon", md, "cut open; sew shut; play 18 holes");
-            _context.Skills.AddRange(skills);
-            //_context.SaveChanges();
-            #endregion
-
+            List<Organization> organizations = new List<Organization>();
+            List<Skill> organizationSkills = new List<Skill>();
             List<Location> locations = GetLocations();
             List<ApplicationUser> users = new List<ApplicationUser>();
             List<TaskSignup> taskSignups = new List<TaskSignup>();
@@ -69,56 +56,97 @@ namespace AllReady.Models
             List<AllReadyTask> tasks = new List<AllReadyTask>();
             List<Resource> resources = new List<Resource>();
             List<ActivitySignup> activitySignups = new List<ActivitySignup>();
+            List<Contact> contacts = GetContacts();
+            var skills = new List<Skill>();
 
-            #region Tenant
-            Tenant htb = new Tenant()
+            #region Skills
+            var medical = new Skill() { Name = "Medical", Description = "specific enough, right?" };
+            var cprCertified = new Skill() { Name = "CPR Certified", ParentSkill = medical, Description = "ha ha ha ha, stayin alive" };
+            var md = new Skill() { Name = "MD", ParentSkill = medical, Description = "Trust me, I'm a doctor" };
+            var surgeon = new Skill() { Name = "Surgeon", ParentSkill = md, Description = "cut open; sew shut; play 18 holes" };
+            skills.AddRange(new[] { medical, cprCertified, md, surgeon });
+            #endregion
+
+            #region Organization
+
+            Organization htb = new Organization()
             {
                 Name = "Humanitarian Toolbox",
                 LogoUrl = "http://www.htbox.org/upload/home/ht-hero.png",
                 WebUrl = "http://www.htbox.org",
-                Campaigns = new List<Campaign>()
+                Location = locations.FirstOrDefault(),
+                Campaigns = new List<Campaign>(), 
+                OrganizationContacts = new List<OrganizationContact>(),
+                
             };
+
             #endregion
 
+            #region Organization Skills
+
+            organizationSkills.Add(new Skill()
+            {
+                Name = "Code Ninja",
+                Description = "Ability to commit flawless code without review or testing",
+                OwningOrganization = htb
+            });
+
+            #endregion
 
             #region Campaign
 
             Campaign firePrev = new Campaign()
             {
                 Name = "Neighborhood Fire Prevention Days",
-                ManagingTenant = htb
+                ManagingOrganization = htb,
+                TimeZoneId = "Central Standard Time"
             };
             htb.Campaigns.Add(firePrev);
+            var smokeDetImpact = new CampaignImpact
+            {
+                ImpactType = ImpactType.Numeric,
+                NumericImpactGoal = 10000,
+                CurrentImpactLevel = 6722,
+                Display = true,
+                TextualImpactGoal = "Total number of smoke detectors installed."
+            };
+            _context.CampaignImpacts.Add(smokeDetImpact);
             Campaign smokeDet = new Campaign()
             {
                 Name = "Working Smoke Detectors Save Lives",
-                ManagingTenant = htb,
-                StartDateTimeUtc = DateTime.Today.AddMonths(-1).ToUniversalTime(),
-                EndDateTimeUtc = DateTime.Today.AddMonths(1).ToUniversalTime()
+                ManagingOrganization = htb,
+                StartDateTime = DateTime.Today.AddMonths(-1).ToUniversalTime(),
+                EndDateTime = DateTime.Today.AddMonths(1).ToUniversalTime(),
+                CampaignImpact = smokeDetImpact,
+                TimeZoneId = "Central Standard Time"
             };
             htb.Campaigns.Add(smokeDet);
             Campaign financial = new Campaign()
             {
                 Name = "Everyday Financial Safety",
-                ManagingTenant = htb
+                ManagingOrganization = htb,
+                TimeZoneId = "Central Standard Time"
             };
             htb.Campaigns.Add(financial);
             Campaign safetyKit = new Campaign()
             {
                 Name = "Simple Safety Kit Building",
-                ManagingTenant = htb
+                ManagingOrganization = htb,
+                TimeZoneId = "Central Standard Time"
             };
             htb.Campaigns.Add(safetyKit);
             Campaign carSafe = new Campaign()
             {
                 Name = "Family Safety In the Car",
-                ManagingTenant = htb
+                ManagingOrganization = htb,
+                TimeZoneId = "Central Standard Time"
             };
             htb.Campaigns.Add(carSafe);
             Campaign escapePlan = new Campaign()
             {
                 Name = "Be Ready to Get Out: Have a Home Escape Plan",
-                ManagingTenant = htb
+                ManagingOrganization = htb,
+                TimeZoneId = "Central Standard Time"
             };
             htb.Campaigns.Add(escapePlan);
             #endregion
@@ -127,10 +155,9 @@ namespace AllReady.Models
             Activity queenAnne = new Activity()
             {
                 Name = "Queen Anne Fire Prevention Day",
-                StartDateTimeUtc = new DateTime(2015, 7, 4, 10, 0, 0).ToUniversalTime(),
-                EndDateTimeUtc = new DateTime(2015, 12, 31, 15, 0, 0).ToUniversalTime(),
+                StartDateTime = new DateTime(2015, 7, 4, 10, 0, 0).ToUniversalTime(),
+                EndDateTime = new DateTime(2015, 12, 31, 15, 0, 0).ToUniversalTime(),
                 Location = GetRandom<Location>(locations),
-                Tenant = htb,
                 RequiredSkills = new List<ActivitySkill>()
             };
             queenAnne.Tasks = GetSomeTasks(queenAnne, htb);
@@ -145,41 +172,40 @@ namespace AllReady.Models
             Activity ballard = new Activity()
             {
                 Name = "Ballard Fire Prevention Day",
-                StartDateTimeUtc = new DateTime(2015, 7, 4, 10, 0, 0).ToUniversalTime(),
-                EndDateTimeUtc = new DateTime(2015, 12, 31, 14, 0, 0).ToUniversalTime(),
+                StartDateTime = new DateTime(2015, 7, 4, 10, 0, 0).ToUniversalTime(),
+                EndDateTime = new DateTime(2015, 12, 31, 14, 0, 0).ToUniversalTime(),
                 Location = GetRandom<Location>(locations),
-                Tenant = htb
-
+                Campaign = firePrev
             };
             ballard.Tasks = GetSomeTasks(ballard, htb);
             tasks.AddRange(ballard.Tasks);
             Activity madrona = new Activity()
             {
                 Name = "Madrona Fire Prevention Day",
-                StartDateTimeUtc = new DateTime(2015, 7, 4, 10, 0, 0).ToUniversalTime(),
-                EndDateTimeUtc = new DateTime(2015, 12, 31, 14, 0, 0).ToUniversalTime(),
+                StartDateTime = new DateTime(2015, 7, 4, 10, 0, 0).ToUniversalTime(),
+                EndDateTime = new DateTime(2015, 12, 31, 14, 0, 0).ToUniversalTime(),
                 Location = GetRandom<Location>(locations),
-                Tenant = htb
+                Campaign = firePrev
             };
             madrona.Tasks = GetSomeTasks(madrona, htb);
             tasks.AddRange(madrona.Tasks);
             Activity southLoopSmoke = new Activity()
             {
                 Name = "Smoke Detector Installation and Testing-South Loop",
-                StartDateTimeUtc = new DateTime(2015, 7, 6, 10, 0, 0).ToUniversalTime(),
-                EndDateTimeUtc = new DateTime(2015, 12, 31, 17, 0, 0).ToUniversalTime(),
+                StartDateTime = new DateTime(2015, 7, 6, 10, 0, 0).ToUniversalTime(),
+                EndDateTime = new DateTime(2015, 12, 31, 17, 0, 0).ToUniversalTime(),
                 Location = GetRandom<Location>(locations),
-                Tenant = htb
+                Campaign = smokeDet
             };
             southLoopSmoke.Tasks = GetSomeTasks(southLoopSmoke, htb);
             tasks.AddRange(southLoopSmoke.Tasks);
             Activity northLoopSmoke = new Activity()
             {
                 Name = "Smoke Detector Installation and Testing-Near North Side",
-                StartDateTimeUtc = new DateTime(2015, 7, 6, 10, 0, 0).ToUniversalTime(),
-                EndDateTimeUtc = new DateTime(2015, 12, 31, 17, 0, 0).ToUniversalTime(),
+                StartDateTime = new DateTime(2015, 7, 6, 10, 0, 0).ToUniversalTime(),
+                EndDateTime = new DateTime(2015, 12, 31, 17, 0, 0).ToUniversalTime(),
                 Location = GetRandom<Location>(locations),
-                Tenant = htb
+                Campaign = smokeDet
             };
             northLoopSmoke.Tasks = GetSomeTasks(northLoopSmoke, htb);
             tasks.AddRange(northLoopSmoke.Tasks);
@@ -187,10 +213,10 @@ namespace AllReady.Models
             {
                 Name = "Renters Insurance Education Door to Door and a bag of chips",
                 Description = "description for the win",
-                StartDateTimeUtc = new DateTime(2015, 7, 11, 8, 0, 0).ToUniversalTime(),
-                EndDateTimeUtc = new DateTime(2015, 7, 11, 17, 0, 0).ToUniversalTime(),
+                StartDateTime = new DateTime(2015, 7, 11, 8, 0, 0).ToUniversalTime(),
+                EndDateTime = new DateTime(2015, 7, 11, 17, 0, 0).ToUniversalTime(),
                 Location = GetRandom<Location>(locations),
-                Tenant = htb
+                Campaign = financial
             };
             rentersInsurance.Tasks = GetSomeTasks(rentersInsurance, htb);
             tasks.AddRange(rentersInsurance.Tasks);
@@ -198,10 +224,10 @@ namespace AllReady.Models
             {
                 Name = "Renters Insurance Education Door to Door (woop woop)",
                 Description = "another great description",
-                StartDateTimeUtc = new DateTime(2015, 7, 12, 8, 0, 0).ToUniversalTime(),
-                EndDateTimeUtc = new DateTime(2015, 12, 12, 17, 0, 0).ToUniversalTime(),
+                StartDateTime = new DateTime(2015, 7, 12, 8, 0, 0).ToUniversalTime(),
+                EndDateTime = new DateTime(2015, 12, 12, 17, 0, 0).ToUniversalTime(),
                 Location = GetRandom<Location>(locations),
-                Tenant = htb
+                Campaign = financial
             };
             rentersInsuranceEd.Tasks = GetSomeTasks(rentersInsuranceEd, htb);
             tasks.AddRange(rentersInsuranceEd.Tasks);
@@ -209,10 +235,10 @@ namespace AllReady.Models
             {
                 Name = "Safety Kit Assembly Volunteer Day",
                 Description = "Full day of volunteers building kits",
-                StartDateTimeUtc = new DateTime(2015, 7, 11, 8, 0, 0).ToUniversalTime(),
-                EndDateTimeUtc = new DateTime(2015, 12, 11, 16, 30, 0).ToUniversalTime(),
+                StartDateTime = new DateTime(2015, 7, 11, 8, 0, 0).ToUniversalTime(),
+                EndDateTime = new DateTime(2015, 12, 11, 16, 30, 0).ToUniversalTime(),
                 Location = GetRandom<Location>(locations),
-                Tenant = htb
+                Campaign = safetyKit
             };
             safetyKitBuild.Tasks = GetSomeTasks(safetyKitBuild, htb);
             tasks.AddRange(safetyKitBuild.Tasks);
@@ -221,10 +247,10 @@ namespace AllReady.Models
             {
                 Name = "Safety Kit Distribution Weekend",
                 Description = "Handing out kits at local fire stations",
-                StartDateTimeUtc = new DateTime(2015, 7, 11, 8, 0, 0).ToUniversalTime(),
-                EndDateTimeUtc = new DateTime(2015, 12, 11, 16, 30, 0).ToUniversalTime(),
+                StartDateTime = new DateTime(2015, 7, 11, 8, 0, 0).ToUniversalTime(),
+                EndDateTime = new DateTime(2015, 12, 11, 16, 30, 0).ToUniversalTime(),
                 Location = GetRandom<Location>(locations),
-                Tenant = htb
+                Campaign = safetyKit
             };
             safetyKitHandout.Tasks = GetSomeTasks(safetyKitHandout, htb);
             tasks.AddRange(safetyKitHandout.Tasks);
@@ -232,10 +258,10 @@ namespace AllReady.Models
             {
                 Name = "Car Seat Testing-Naperville",
                 Description = "Checking car seats at local fire stations after last day of school year",
-                StartDateTimeUtc = new DateTime(2015, 7, 10, 9, 30, 0).ToUniversalTime(),
-                EndDateTimeUtc = new DateTime(2015, 12, 10, 15, 30, 0).ToUniversalTime(),
+                StartDateTime = new DateTime(2015, 7, 10, 9, 30, 0).ToUniversalTime(),
+                EndDateTime = new DateTime(2015, 12, 10, 15, 30, 0).ToUniversalTime(),
                 Location = GetRandom<Location>(locations),
-                Tenant = htb
+                Campaign = carSafe
             };
             carSeatTest1.Tasks = GetSomeTasks(carSeatTest1, htb);
             tasks.AddRange(carSeatTest1.Tasks);
@@ -243,10 +269,10 @@ namespace AllReady.Models
             {
                 Name = "Car Seat and Tire Pressure Checking Volunteer Day",
                 Description = "Checking those things all day at downtown train station parking",
-                StartDateTimeUtc = new DateTime(2015, 7, 11, 8, 0, 0).ToUniversalTime(),
-                EndDateTimeUtc = new DateTime(2015, 12, 11, 19, 30, 0).ToUniversalTime(),
+                StartDateTime = new DateTime(2015, 7, 11, 8, 0, 0).ToUniversalTime(),
+                EndDateTime = new DateTime(2015, 12, 11, 19, 30, 0).ToUniversalTime(),
                 Location = GetRandom<Location>(locations),
-                Tenant = htb
+                Campaign = carSafe
             };
             carSeatTest2.Tasks = GetSomeTasks(carSeatTest2, htb);
             tasks.AddRange(carSeatTest2.Tasks);
@@ -254,10 +280,10 @@ namespace AllReady.Models
             {
                 Name = "Park District Home Safety Festival",
                 Description = "At downtown park district(adjacent to pool)",
-                StartDateTimeUtc = new DateTime(2015, 7, 11, 12, 0, 0).ToUniversalTime(),
-                EndDateTimeUtc = new DateTime(2015, 12, 11, 16, 30, 0).ToUniversalTime(),
+                StartDateTime = new DateTime(2015, 7, 11, 12, 0, 0).ToUniversalTime(),
+                EndDateTime = new DateTime(2015, 12, 11, 16, 30, 0).ToUniversalTime(),
                 Location = GetRandom<Location>(locations),
-                Tenant = htb
+                Campaign = safetyKit
             };
             homeFestival.Tasks = GetSomeTasks(homeFestival, htb);
             tasks.AddRange(homeFestival.Tasks);
@@ -265,10 +291,10 @@ namespace AllReady.Models
             {
                 Name = "Home Escape Plan Flyer Distribution",
                 Description = "Handing out flyers door to door in several areas of town after school/ work hours.Streets / blocks will vary but number of volunteers.",
-                StartDateTimeUtc = new DateTime(2015, 7, 15, 15, 30, 0).ToUniversalTime(),
-                EndDateTimeUtc = new DateTime(2015, 12, 15, 20, 30, 0).ToUniversalTime(),
+                StartDateTime = new DateTime(2015, 7, 15, 15, 30, 0).ToUniversalTime(),
+                EndDateTime = new DateTime(2015, 12, 15, 20, 30, 0).ToUniversalTime(),
                 Location = GetRandom<Location>(locations),
-                Tenant = htb
+                Campaign = escapePlan
             };
             homeEscape.Tasks = GetSomeTasks(homeEscape, htb);
             tasks.AddRange(homeEscape.Tasks);
@@ -295,7 +321,7 @@ namespace AllReady.Models
             escapePlan.Activities.Add(homeEscape);
             #endregion
             #region Add Campaigns and Activities
-            tenants.Add(htb);
+            organizations.Add(htb);
             campaigns.Add(firePrev);
             campaigns.Add(smokeDet);
             campaigns.Add(financial);
@@ -335,10 +361,11 @@ namespace AllReady.Models
             #endregion
 
             #region Insert into DB
-
+            _context.Skills.AddRange(skills);
+            _context.Contacts.AddRange(contacts);
             _context.ActivitySkills.AddRange(activitySkills);
             _context.Locations.AddRange(locations);
-            _context.Tenants.AddRange(tenants);
+            _context.Organizations.AddRange(organizations);
             _context.Tasks.AddRange(tasks);
             _context.Campaigns.AddRange(campaigns);
             _context.Activities.AddRange(activities);
@@ -351,13 +378,13 @@ namespace AllReady.Models
             var username2 = $"{_settings.DefaultUsername}2.com";
             var username3 = $"{_settings.DefaultUsername}3.com";
 
-            var user1 = new ApplicationUser { UserName = username1, Email = username1, EmailConfirmed = true };
+            var user1 = new ApplicationUser { UserName = username1, Email = username1, EmailConfirmed = true, TimeZoneId = _generalSettings.DefaultTimeZone };
             _userManager.CreateAsync(user1, _settings.DefaultAdminPassword).Wait();
             users.Add(user1);
-            var user2 = new ApplicationUser { UserName = username2, Email = username2, EmailConfirmed = true };
+            var user2 = new ApplicationUser { UserName = username2, Email = username2, EmailConfirmed = true, TimeZoneId = _generalSettings.DefaultTimeZone };
             _userManager.CreateAsync(user2, _settings.DefaultAdminPassword).Wait();
             users.Add(user2);
-            var user3 = new ApplicationUser { UserName = username3, Email = username3, EmailConfirmed = true };
+            var user3 = new ApplicationUser { UserName = username3, Email = username3, EmailConfirmed = true, TimeZoneId = _generalSettings.DefaultTimeZone };
             _userManager.CreateAsync(user3, _settings.DefaultAdminPassword).Wait();
             users.Add(user3);
             #endregion
@@ -374,12 +401,16 @@ namespace AllReady.Models
             {
                 for (var j = 0; j < i; j++)
                 {
-                    taskSignups.Add(new TaskSignup() { Task = task, User = users[j] });
+                    taskSignups.Add(new TaskSignup() { Task = task, User = users[j], Status = Areas.Admin.Features.Tasks.TaskStatus.Assigned.ToString() });
                 }
 
                 i = (i + 1) % users.Count;
             }
             _context.TaskSignups.AddRange(taskSignups);
+            #endregion
+
+            #region TennatContacts
+            htb.OrganizationContacts.Add(new OrganizationContact { Contact = contacts.First(), Organization = htb, ContactType = 1 /*Primary*/ });
             #endregion
 
             #region Wrap Up DB  
@@ -389,56 +420,12 @@ namespace AllReady.Models
 
         }
 
-        /// <summary>
-        /// Split this off from the InsertTestData function so we can call this
-        /// even if the "anti-database-pollution" logic bails due to pre-existing
-        /// database records. The reason for this is that we are preventing
-        /// duplicate records already.
-        /// </summary>
-        /// <param name="_context"></param>
-        private static void InsertCampaignImpactTypes(AllReadyContext _context)
+        private List<Contact> GetContacts()
         {
-            var campaignImpactTypes = new List<CampaignImpactType>();
-            var existingImpactTypes = _context.CampaignImpactTypes.ToList();
-            var numeric = GetImpactType(campaignImpactTypes, existingImpactTypes, "Numeric");
-            var textual = GetImpactType(campaignImpactTypes, existingImpactTypes, "Textual");
-            _context.CampaignImpactTypes.AddRange(campaignImpactTypes);
-        }
-
-        private static Skill GetSkill(List<Skill> skills, List<Skill> existingSkills, string skillName, Skill parentSkill = null, string description = null)
-        {
-            Skill skill;
-            if (existingSkills.Any(item => item.Name == skillName))
-            {
-                skill = existingSkills.Single(item => item.Name == skillName);
-            }
-            else
-            {
-                skill = new Skill { Name = skillName };
-                if (parentSkill != null)
-                {
-                    skill.ParentSkill = parentSkill;
-                }
-                skills.Add(skill);
-            }
-            skill.Description = description;
-            return skill;
-        }
-
-        private static CampaignImpactType GetImpactType(List<CampaignImpactType> types, List<CampaignImpactType> existingTypes, string typeName)
-        {
-            CampaignImpactType impactType;
-            if (existingTypes.Any(item => item.Name == typeName))
-            {
-                impactType = existingTypes.Single(item => item.Name == typeName);
-            }
-            else
-            {
-                impactType = new CampaignImpactType { Name = typeName };
-
-                types.Add(impactType);
-            }
-            return impactType;
+            var list = new List<Contact>();
+            list.Add(new Contact { FirstName = "Bob", LastName = "Smith", Email = "BobSmith@mailinator.com", PhoneNumber = "999-888-7777" });
+            list.Add(new Contact { FirstName = "George", LastName = "Leone", Email = "GeorgeLeone@mailinator.com", PhoneNumber = "999-888-7777" });
+            return list;
         }
 
         #region Sample Data Helper methods
@@ -448,7 +435,7 @@ namespace AllReady.Models
             return list[rand.Next(list.Count)];
         }
 
-        private static List<AllReadyTask> GetSomeTasks(Activity activity, Tenant tenant)
+        private static List<AllReadyTask> GetSomeTasks(Activity activity, Organization organization)
         {
             List<AllReadyTask> value = new List<AllReadyTask>();
             for (int i = 0; i < 5; i++)
@@ -459,9 +446,9 @@ namespace AllReady.Models
                     Activity = activity,
                     Description = "Description of a very important task # " + i,
                     Name = "Task # " + i,
-                    EndDateTimeUtc = DateTime.Now.AddDays(i),
-                    StartDateTimeUtc = DateTime.Now.AddDays(i - 1),
-                    Tenant = tenant
+                    EndDateTime = DateTime.Now.AddDays(i),
+                    StartDateTime = DateTime.Now.AddDays(i - 1),
+                    Organization = organization
                 });
             }
             return value;
@@ -491,6 +478,10 @@ namespace AllReady.Models
             if (!existingPostalCode.Any(item => item.PostalCode == "98027")) postalCodes.Add(new PostalCodeGeo() { City = "Issaquah", State = "WA", PostalCode = "98027" });
             if (!existingPostalCode.Any(item => item.PostalCode == "98034")) postalCodes.Add(new PostalCodeGeo() { City = "Kirkland", State = "WA", PostalCode = "98034" });
             if (!existingPostalCode.Any(item => item.PostalCode == "98033")) postalCodes.Add(new PostalCodeGeo() { City = "Kirkland", State = "WA", PostalCode = "98033" });
+            if (!existingPostalCode.Any(item => item.PostalCode == "60505")) postalCodes.Add(new PostalCodeGeo() { City = "Aurora", State = "IL", PostalCode = "60505" });
+            if (!existingPostalCode.Any(item => item.PostalCode == "60506")) postalCodes.Add(new PostalCodeGeo() { City = "Aurora", State = "IL", PostalCode = "60506" });
+            if (!existingPostalCode.Any(item => item.PostalCode == "45231")) postalCodes.Add(new PostalCodeGeo() { City = "Cincinnati", State = "OH", PostalCode = "45231" });
+            if (!existingPostalCode.Any(item => item.PostalCode == "45240")) postalCodes.Add(new PostalCodeGeo() { City = "Cincinnati", State = "OH", PostalCode = "45240" });
             return postalCodes;
         }
 
@@ -528,19 +519,19 @@ namespace AllReady.Models
             var user = await _userManager.FindByNameAsync(_settings.DefaultAdminUsername);
             if (user == null)
             {
-                user = new ApplicationUser { UserName = _settings.DefaultAdminUsername, Email = _settings.DefaultAdminUsername };
+                user = new ApplicationUser { UserName = _settings.DefaultAdminUsername, Email = _settings.DefaultAdminUsername, TimeZoneId = _generalSettings.DefaultTimeZone };
                 user.EmailConfirmed = true;
                 _userManager.CreateAsync(user, _settings.DefaultAdminPassword).Wait();
                 _userManager.AddClaimAsync(user, new Claim(Security.ClaimTypes.UserType, "SiteAdmin")).Wait();
 
-                var user2 = new ApplicationUser { UserName = _settings.DefaultTenantUsername, Email = _settings.DefaultTenantUsername};
-                // For the sake of being able to exercise Tenant-specific stuff, we need to associate a tenant.
+                var user2 = new ApplicationUser { UserName = _settings.DefaultOrganizationUsername, Email = _settings.DefaultOrganizationUsername, TimeZoneId = _generalSettings.DefaultTimeZone };
+                // For the sake of being able to exercise Organization-specific stuff, we need to associate a organization.
                 user2.EmailConfirmed = true;
                 await _userManager.CreateAsync(user2, _settings.DefaultAdminPassword);
-                await _userManager.AddClaimAsync(user2, new Claim(Security.ClaimTypes.UserType, "TenantAdmin"));
-                await _userManager.AddClaimAsync(user2, new Claim(Security.ClaimTypes.Tenant, _context.Tenants.First().Id.ToString()));
+                await _userManager.AddClaimAsync(user2, new Claim(Security.ClaimTypes.UserType, "OrgAdmin"));
+                await _userManager.AddClaimAsync(user2, new Claim(Security.ClaimTypes.Organization, _context.Organizations.First().Id.ToString()));
 
-                var user3 = new ApplicationUser { UserName = _settings.DefaultUsername, Email = _settings.DefaultUsername };
+                var user3 = new ApplicationUser { UserName = _settings.DefaultUsername, Email = _settings.DefaultUsername, TimeZoneId = _generalSettings.DefaultTimeZone };
                 user3.EmailConfirmed = true;
                 await _userManager.CreateAsync(user3, _settings.DefaultAdminPassword);
             }

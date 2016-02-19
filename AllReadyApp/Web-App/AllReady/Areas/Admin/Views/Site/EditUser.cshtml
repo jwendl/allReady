@@ -22,18 +22,18 @@
                 <p class="form-control-static">@Model.UserName</p>
             </div>
         </div>
-        @if (Model.Tenant != null)
+        @if (Model.Organization != null)
         {
             <div class="form-group">
                 <label class="control-label col-md-2">Organization</label>
                 <div class="col-md-10">
-                    <p class="form-control-static">@Model.Tenant.Name</p>
+                    <p class="form-control-static">@Model.Organization.Name</p>
                 </div>
             </div>
             <div class="form-group">
-                <label asp-for="IsTenantAdmin" class="control-label col-md-2"></label>
+                <label asp-for="IsOrganizationAdmin" class="control-label col-md-2"></label>
                 <div class="col-md-10">
-                    <input type="checkbox" name="IsTenantAdmin" class="bootstrap-toggle" asp-for="IsTenantAdmin" />
+                    <input type="checkbox" name="IsOrganizationAdmin" class="bootstrap-toggle" asp-for="IsOrganizationAdmin" />
                 </div>
             </div>
         }
@@ -43,7 +43,7 @@
                 <div data-bind="foreach: associatedSkills">
                     <div class="form-inline">
                         <select class="form-control" data-bind="attr: { name: ControlName($index) }, options: $root.availableSkills, optionsText: 'Name', optionsValue: 'Id', value: Id"></select>
-                        <span class="glyphicon glyphicon-info-sign" data-bind="visible: Description, tooltip: { title: Description, placement: 'top' }" aria-hidden="true"></span>
+                        <span class="fa fa-question-circle" data-bind="visible: Description, tooltip: { title: Description, placement: 'top' }" aria-hidden="true"></span>
                         <a href="#" data-bind="click: $root.deleteSkill" title="Delete required skill">
                             <span class="fa fa-remove" aria-hidden="true"></span>
                             Delete
@@ -58,9 +58,9 @@
         </div>
         <div class="form-group">
             <div class="col-md-offset-2 col-md-10">
-                <button type="submit" class="btn" data-bind="enable: associatedSkills.isValid">Save</button>
+                <button type="submit" class="btn btn-default" data-bind="enable: associatedSkills.isValid">Save</button>
                 <span class="label label-danger" data-bind="visible: !associatedSkills.isValid()">"@Html.DisplayNameFor(m => m.AssociatedSkills)" must be unique</span>
-                <a asp-controller="Site" asp-action="Index" class="btn">Back to List</a>
+                <a asp-controller="Site" asp-action="Index" class="btn btn-default">Back to List</a>
             </div>
         </div>
     </div>

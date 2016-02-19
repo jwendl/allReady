@@ -28,7 +28,6 @@ namespace AllReady.Models
                 .Include(z => z.User)
                 .Include(x => x.Activity)
                 .Include(x => x.Activity.UsersSignedUp)
-                .ToArray()
                 .Where(x => x.Activity.Id == id)
                 .Where(x => x.User.Id == userId)
                 .SingleOrDefault();
@@ -42,12 +41,19 @@ namespace AllReady.Models
 
         Task IAllReadyDataAccess.DeleteActivitySignupAsync(int activitySignupId)
         {
-            //TODO: Unvolunteer also remove Assigned Tasks
             var activity = _dbContext.ActivitySignup.SingleOrDefault(c => c.Id == activitySignupId);
 
             if (activity != null)
             {
                 _dbContext.ActivitySignup.Remove(activity);
+                var signupIds = _dbContext.TaskSignups
+                    .Where(e => e.Task.Activity.Id == activity.Activity.Id)
+                    .Where(e => e.User.Id == activity.User.Id)
+                    .Select(e => e.Id);
+
+                var tasks = signupIds.Select(id => (this as IAllReadyDataAccess).DeleteTaskAsync(id));
+                Task.WaitAll(tasks.ToArray());
+                
                 return _dbContext.SaveChangesAsync();
             }
             return null;

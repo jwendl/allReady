@@ -11,8 +11,9 @@ using System.Threading.Tasks;
 using AllReady.Services;
 using AllReady.Areas.Admin.Models;
 using AllReady.Security;
-using Microsoft.Framework.Logging;
+using Microsoft.Extensions.Logging;
 using System;
+using Microsoft.AspNet.Mvc.Rendering;
 
 namespace AllReady.Areas.Admin.Controllers
 {
@@ -45,15 +46,15 @@ namespace AllReady.Areas.Admin.Controllers
         public IActionResult EditUser(string userId)
         {
             var user = _dataAccess.GetUser(userId);
-            var tenantId = user.GetTenantId();
+            var organizationId = user.GetOrganizationId();
             var viewModel = new EditUserModel()
             {
                 UserId = userId,
                 UserName = user.UserName,
                 AssociatedSkills = user.AssociatedSkills,
-                IsTenantAdmin = user.IsUserType(UserType.TenantAdmin),
+                IsOrganizationAdmin = user.IsUserType(UserType.OrgAdmin),
                 IsSiteAdmin = user.IsUserType(UserType.SiteAdmin),
-                Tenant = tenantId != null ? _dataAccess.GetTenant(tenantId.Value) : null
+                Organization = organizationId != null ? _dataAccess.GetOrganization(organizationId.Value) : null
             };
             return View(viewModel);
         }
@@ -80,11 +81,11 @@ namespace AllReady.Areas.Admin.Controllers
             }
             await _dataAccess.UpdateUser(user);
 
-            var tenantAdminClaim = new Claim(Security.ClaimTypes.UserType, "TenantAdmin");
-            if (viewModel.IsTenantAdmin)
+            var organizationAdminClaim = new Claim(Security.ClaimTypes.UserType, "OrgAdmin");
+            if (viewModel.IsOrganizationAdmin)
             {
-                //add tenant admin claim
-                var result = await _userManager.AddClaimAsync(user, tenantAdminClaim);
+                //add organization admin claim
+                var result = await _userManager.AddClaimAsync(user, organizationAdminClaim);
                 if (result.Succeeded)
                 {
                     var callbackUrl = Url.Action("Login", "Admin", new { Email = user.Email }, protocol: HttpContext.Request.Scheme);
@@ -95,10 +96,10 @@ namespace AllReady.Areas.Admin.Controllers
                     return Redirect("Error");
                 }
             }
-            else if (user.IsUserType(UserType.TenantAdmin))
+            else if (user.IsUserType(UserType.OrgAdmin))
             {
-                //remove tenant admin claim
-                var result = await _userManager.RemoveClaimAsync(user, tenantAdminClaim);
+                //remove organization admin claim
+                var result = await _userManager.RemoveClaimAsync(user, organizationAdminClaim);
                 if (!result.Succeeded)
                 {
                     return Redirect("Error");
@@ -108,15 +109,16 @@ namespace AllReady.Areas.Admin.Controllers
             return RedirectToAction(nameof(Index));
         }
 
+        //TODO: This should be an HttpPost but that also requires changes to the view that is calling this
         [HttpGet]
         public async Task<IActionResult> ResetPassword(string userId)
         {
             try
             {
                 var user = _dataAccess.GetUser(userId);
-                if (user == null || !(await _userManager.IsEmailConfirmedAsync(user)))
+                if (user == null)
                 {
-                    ViewBag.ErrorMessage = $"Failed to reset password for {user.UserName}, email not confirmed.";
+                    ViewBag.ErrorMessage = $"User not found.";
                     return View();
                 }
 
@@ -124,8 +126,8 @@ namespace AllReady.Areas.Admin.Controllers
                 // Send an email with this link
                 var code = await _userManager.GeneratePasswordResetTokenAsync(user);
                 var callbackUrl = Url.Action("ResetPassword", "Admin", new { userId = user.Id, code = code }, protocol: HttpContext.Request.Scheme);
-                //await _emailSender.SendEmailAsync(user.Email, "Reset Password",
-                //   "Please reset your password by clicking here: <a href=\"" + callbackUrl + "\">link</a>");
+                await _emailSender.SendEmailAsync(user.Email, "Reset Password",
+                   "Please reset your password by clicking here: <a href=\"" + callbackUrl + "\">link</a>");
                 ViewBag.SuccessMessage = $"Sent password reset email for {user.UserName}.";
                 return View();
 
@@ -156,20 +158,54 @@ namespace AllReady.Areas.Admin.Controllers
         }
 
         [HttpGet]
-        public IActionResult AssignTenantAdmin(string userId)
+        public IActionResult AssignOrganizationAdmin(string userId)
         {
-            try
+            var user = _dataAccess.GetUser(userId);
+            if (user.IsUserType(UserType.OrgAdmin) || user.IsUserType(UserType.SiteAdmin))
             {
-                var user = _dataAccess.GetUser(userId);
+                return RedirectToAction(nameof(Index));
+            }
 
-                return View();
-            }
-            catch (Exception ex)
+            var organizations = _dataAccess.Organziations
+                .OrderBy(t => t.Name)
+                .Select(t => new SelectListItem() { Text = t.Name, Value = t.Id.ToString() })
+                .ToList();
+
+            ViewBag.Organizations = new SelectListItem[] 
             {
-                _logger.LogError(@"Failed to assign site admin for {userId}", ex);
-                ViewBag.ErrorMessage = $"Failed to assign site admin for {userId}. Exception thrown.";
-                return View();
+                new SelectListItem() { Selected = true, Text = "<Select One>", Value = "0" }
+            }.Union(organizations);
+
+            return View(new AssignOrganizationAdminModel() { UserId = userId });
+        }
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> AssignOrganizationAdmin(AssignOrganizationAdminModel model)
+        {
+            var user = _dataAccess.GetUser(model.UserId);
+            if (user == null) return RedirectToAction(nameof(Index));
+
+            if (model.OrganizationId == 0)
+            {
+                ModelState.AddModelError(nameof(AssignOrganizationAdminModel.OrganizationId), "You must pick a valid organization.");
             }
+
+            if (ModelState.IsValid)
+            {
+                if (_dataAccess.Organziations.Any(t => t.Id == model.OrganizationId))
+                {
+                    await _userManager.AddClaimAsync(user, new Claim(Security.ClaimTypes.UserType, UserType.OrgAdmin.ToName()));
+                    await _userManager.AddClaimAsync(user, new Claim(Security.ClaimTypes.Organization, model.OrganizationId.ToString()));
+                    return RedirectToAction(nameof(Index));
+                }
+                else
+                {
+                    ModelState.AddModelError(nameof(AssignOrganizationAdminModel.OrganizationId), "Invalid Organization. Please contact support.");
+                }
+            }
+
+            return View();
         }
 
         [HttpGet]
@@ -190,13 +226,15 @@ namespace AllReady.Areas.Admin.Controllers
         }
 
         [HttpGet]
-        public IActionResult RevokeTenantAdmin(string userId)
+        public async Task<IActionResult> RevokeOrganizationAdmin(string userId)
         {
             try
             {
                 var user = _dataAccess.GetUser(userId);
-
-                return View();
+                var claims = await _userManager.GetClaimsAsync(user);
+                await _userManager.RemoveClaimAsync(user, claims.First(c => c.Type == Security.ClaimTypes.UserType));
+                await _userManager.RemoveClaimAsync(user, claims.First(c => c.Type == Security.ClaimTypes.Organization));
+                return RedirectToAction(nameof(Index));
             }
             catch (Exception ex)
             {

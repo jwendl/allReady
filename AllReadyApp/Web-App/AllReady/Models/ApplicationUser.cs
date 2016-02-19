@@ -11,5 +11,11 @@ namespace AllReady.Models
         public List<UserSkill> AssociatedSkills { get; set; } = new List<UserSkill>();
 
         public string Name { get; set; }
+
+        [Display(Name = "Time Zone")]
+        [Required]
+        public string TimeZoneId { get; set; }
+
+        public string PendingNewEmail { get; set; }
     }
 }

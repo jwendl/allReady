@@ -9,11 +9,12 @@ using AllReady.Security;
 using MediatR;
 using AllReady.Areas.Admin.Features.Tasks;
 using AllReady.Areas.Admin.Models;
+using System;
 
 namespace AllReady.Areas.Admin.Controllers
 {
     [Area("Admin")]
-    [Authorize("TenantAdmin")]
+    [Authorize("OrgAdmin")]
     public class TaskController : Controller
     {
         private readonly IAllReadyDataAccess _dataAccess;
@@ -30,7 +31,7 @@ namespace AllReady.Areas.Admin.Controllers
         public IActionResult Create(int activityId)
         {
             var activity = _dataAccess.GetActivity(activityId);
-            if (activity == null || !User.IsTenantAdmin(activity.TenantId))
+            if (activity == null || !User.IsOrganizationAdmin(activity.Campaign.ManagingOrganizationId))
             {
                 return HttpUnauthorized();
             }
@@ -40,7 +41,10 @@ namespace AllReady.Areas.Admin.Controllers
                 ActivityName = activity.Name,
                 CampaignId = activity.CampaignId,
                 CampaignName = activity.Campaign.Name,
-                TenantId = activity.TenantId
+                OrganizationId = activity.Campaign.ManagingOrganizationId,
+                TimeZoneId = activity.Campaign.TimeZoneId,
+                StartDateTime = activity.StartDateTime,
+                EndDateTime = activity.EndDateTime,
             };
             return View("Edit", viewModel);
         }
@@ -52,12 +56,14 @@ namespace AllReady.Areas.Admin.Controllers
         {
             if (model.EndDateTime < model.StartDateTime)
             {
-                ModelState.AddModelError("EndDateTime", "Ending time cannot be earlier than the starting time");
+                ModelState.AddModelError(nameof(model.EndDateTime), "Ending time cannot be earlier than the starting time");
             }
+
+            WarnDateTimeOutOfRange(ref model);
 
             if (ModelState.IsValid)
             {
-                if (!User.IsTenantAdmin(model.TenantId))
+                if (!User.IsOrganizationAdmin(model.OrganizationId))
                 {
                     return HttpUnauthorized();
                 }
@@ -76,7 +82,7 @@ namespace AllReady.Areas.Admin.Controllers
             {
                 return HttpNotFound();
             }            
-            if (!User.IsTenantAdmin(task.TenantId))
+            if (!User.IsOrganizationAdmin(task.OrganizationId))
             {
                 return HttpUnauthorized();
             }
@@ -89,12 +95,14 @@ namespace AllReady.Areas.Admin.Controllers
         {
             if (model.EndDateTime < model.StartDateTime)
             {
-                ModelState.AddModelError("EndDateTime", "Ending time cannot be earlier than the starting time");
+                ModelState.AddModelError(nameof(model.EndDateTime), "Ending time cannot be earlier than the starting time");
             }
+
+            WarnDateTimeOutOfRange(ref model);
 
             if (ModelState.IsValid)
             {
-                if (!User.IsTenantAdmin(model.TenantId))
+                if (!User.IsOrganizationAdmin(model.OrganizationId))
                 {
                     return HttpUnauthorized();
                 }
@@ -113,7 +121,7 @@ namespace AllReady.Areas.Admin.Controllers
                 return HttpNotFound();
             }
             
-            if (!User.IsTenantAdmin(task.TenantId))
+            if (!User.IsOrganizationAdmin(task.OrganizationId))
             {
                 return HttpUnauthorized();
             }
@@ -142,7 +150,7 @@ namespace AllReady.Areas.Admin.Controllers
             {
                 return HttpNotFound();
             }
-            if (!User.IsTenantAdmin(task.TenantId))
+            if (!User.IsOrganizationAdmin(task.OrganizationId))
             {
                 return HttpUnauthorized();
             }
@@ -152,14 +160,14 @@ namespace AllReady.Areas.Admin.Controllers
         }
 
 
-        private bool UserIsTenantAdminOfActivity(Activity activity)
+        private bool UserIsOrganizationAdminOfActivity(Activity activity)
         {
-            return User.IsTenantAdmin(activity.TenantId);
+            return User.IsOrganizationAdmin(activity.Campaign.ManagingOrganizationId);
         }
 
-        private bool UserIsTenantAdminOfActivity(int activityId)
+        private bool UserIsOrganizationAdminOfActivity(int activityId)
         {
-            return UserIsTenantAdminOfActivity(_dataAccess.GetActivity(activityId));
+            return UserIsOrganizationAdminOfActivity(_dataAccess.GetActivity(activityId));
         }
 
         [HttpPost]
@@ -168,7 +176,7 @@ namespace AllReady.Areas.Admin.Controllers
         {
             var task = _bus.Send(new TaskQuery() { TaskId = id });
             
-            if (!UserIsTenantAdminOfActivity(task.ActivityId))
+            if (!UserIsOrganizationAdminOfActivity(task.ActivityId))
             {
                 return new HttpUnauthorizedResult();
             }
@@ -177,6 +185,66 @@ namespace AllReady.Areas.Admin.Controllers
 
 
             return RedirectToRoute(new { controller = "Task", Area = "Admin", action = "Details", id = id });
+        }
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public IActionResult MessageAllVolunteers(MessageTaskVolunteersModel model)
+        {
+            //TODO: Query only for the organization Id rather than the whole activity detail
+            if (!ModelState.IsValid)
+            {
+                return HttpBadRequest(ModelState);
+            }
+
+            var task = _bus.Send(new TaskQuery { TaskId = model.TaskId });
+            if (task == null)
+            {
+                return HttpNotFound();
+            }
+
+            if (!User.IsOrganizationAdmin(task.OrganizationId))
+            {
+                return HttpUnauthorized();
+            }
+
+            _bus.Send(new MessageTaskVolunteersCommand { Model = model });
+            return Ok();
+        }
+
+        private void WarnDateTimeOutOfRange(ref TaskEditModel model)
+        {
+            if (model.StartDateTime.HasValue || model.EndDateTime.HasValue)
+            {
+                var activity = _dataAccess.GetActivity(model.ActivityId);
+                TimeZoneInfo timeZone = TimeZoneInfo.FindSystemTimeZoneById(activity.Campaign.TimeZoneId);
+
+                DateTimeOffset? convertedStartDateTime = null;
+                if (model.StartDateTime.HasValue)
+                {
+                    var startDateValue = model.StartDateTime.Value;
+                    var startDateTimeOffset = timeZone.GetUtcOffset(startDateValue);
+                    convertedStartDateTime = new DateTimeOffset(startDateValue.Year, startDateValue.Month, startDateValue.Day, startDateValue.Hour, startDateValue.Minute, 0, startDateTimeOffset);
+                }
+
+                DateTimeOffset? convertedEndDateTime = null;
+                if (model.EndDateTime.HasValue)
+                {
+                    var endDateValue = model.EndDateTime.Value;
+                    var endDateTimeOffset = timeZone.GetUtcOffset(endDateValue);
+                    convertedEndDateTime = new DateTimeOffset(endDateValue.Year, endDateValue.Month, endDateValue.Day, endDateValue.Hour, endDateValue.Minute, 0, endDateTimeOffset);
+                }
+
+                if ((convertedStartDateTime < activity.StartDateTime || convertedEndDateTime > activity.EndDateTime) &&
+                    (model.IgnoreTimeRangeWarning == false))
+                {
+                    ModelState.AddModelError("", "Although valid, task time is out of range for activity time from " +
+                        activity.StartDateTime.DateTime.ToString("g") + " to " + activity.EndDateTime.DateTime.ToString("g") + " " + activity.Campaign.TimeZoneId.ToString());
+                    ModelState.Remove("IgnoreTimeRangeWarning");
+                    model.IgnoreTimeRangeWarning = true;
+                }
+            }
+            
         }
 
     }

@@ -2,7 +2,7 @@
 using Microsoft.AspNet.Identity;
 using Microsoft.AspNet.Mvc;
 using Microsoft.AspNet.Mvc.Rendering;
-using Microsoft.Framework.Configuration;
+using Microsoft.Extensions.Configuration;
 using AllReady.Areas.Admin.Controllers;
 using AllReady.Models;
 using AllReady.Services;
@@ -10,7 +10,10 @@ using AllReady.Services;
 using System.Linq;
 using System.Security.Claims;
 using System.Threading.Tasks;
-using Microsoft.Framework.OptionsModel;
+using Microsoft.Extensions.OptionsModel;
+using AllReady.Security;
+using MediatR;
+using AllReady.Features.Login;
 
 namespace AllReady.Controllers
 {
@@ -18,94 +21,28 @@ namespace AllReady.Controllers
     {
         private readonly UserManager<ApplicationUser> _userManager;
         private readonly SignInManager<ApplicationUser> _signInManager;
+        private readonly IMediator _bus;
         private readonly IEmailSender _emailSender;
         private readonly ISmsSender _smsSender;
         private readonly SampleDataSettings _settings;
+        private readonly GeneralSettings _generalSettings;
 
         public AdminController(
             UserManager<ApplicationUser> userManager,
             SignInManager<ApplicationUser> signInManager,
+            IMediator bus,
             IEmailSender emailSender,
             ISmsSender smsSender,
-            IOptions<SampleDataSettings> options)
+            IOptions<SampleDataSettings> options,
+            IOptions<GeneralSettings> generalSettings)
         {
             _userManager = userManager;
             _signInManager = signInManager;
+            _bus = bus;
             _emailSender = emailSender;
             _smsSender = smsSender;
             _settings = options.Value;
-        }
-
-        //
-        // GET: /Admin/Login
-        [HttpGet]
-        [AllowAnonymous]
-        public IActionResult Login(string returnUrl = null)
-        {
-            ViewData["ReturnUrl"] = returnUrl;
-            return View(new LoginViewModel());
-        }
-
-        //
-        // POST: /Admin/Login
-        [HttpPost]
-        [AllowAnonymous]
-        [ValidateAntiForgeryToken]
-        public async Task<IActionResult> Login(LoginViewModel model, string returnUrl = "")
-        {
-            ViewData["ReturnUrl"] = returnUrl;
-            if (ModelState.IsValid)
-            {
-                // Require the user to have a confirmed email before they can log on.
-                var userConfirmed = await _userManager.FindByNameAsync(model.Email);
-                if (userConfirmed != null)
-                {
-                    if (!await _userManager.IsEmailConfirmedAsync(userConfirmed))
-                    {
-                        ViewData["Message"] = "You must have a confirmed email to log on.";
-                        return View("Error");
-                    }
-                }
-
-                // This doesn't count login failures towards account lockout
-                // To enable password failures to trigger account lockout, set lockoutOnFailure: true
-                var result = await _signInManager.PasswordSignInAsync(model.Email, model.Password, model.RememberMe, lockoutOnFailure: false);
-                if (result.Succeeded)
-                {
-                    var user = await _userManager.FindByNameAsync(model.Email);
-                    var claims = await _userManager.GetClaimsAsync(user);
-                    if (claims.Count > 0)
-                    {
-                        var claimValue = claims.FirstOrDefault(c => c.Type.Equals(Security.ClaimTypes.UserType)).Value;
-
-                        if (claimValue.Equals("TenantAdmin"))
-                        {
-                            return base.RedirectToAction(nameof(Areas.Admin.Controllers.TenantController.Index), "Tenant", new { area = "Admin" });
-                        }
-                        else if (claimValue.Equals("SiteAdmin"))
-                        {
-                            return RedirectToAction(nameof(SiteController.Index), "Site", new { area = "Admin" });
-                        }
-                    }
-
-                }
-                if (result.RequiresTwoFactor)
-                {
-                    return RedirectToAction(nameof(SendCode), new { ReturnUrl = returnUrl, RememberMe = model.RememberMe });
-                }
-                if (result.IsLockedOut)
-                {
-                    return View("Lockout");
-                }
-                else
-                {
-                    ModelState.AddModelError(string.Empty, "Invalid login attempt.");
-                    return View(model);
-                }
-            }
-
-            // If we got this far, something failed, redisplay form
-            return View(model);
+            _generalSettings = generalSettings.Value;
         }
 
         //
@@ -126,7 +63,12 @@ namespace AllReady.Controllers
         {
             if (ModelState.IsValid)
             {
-                var user = new ApplicationUser { UserName = model.Email, Email = model.Email };
+                var user = new ApplicationUser
+                {
+                    UserName = model.Email,
+                    Email = model.Email,
+                    TimeZoneId = _generalSettings.DefaultTimeZone
+                };
                 var result = await _userManager.CreateAsync(user, model.Password);
                 if (result.Succeeded)
                 {
@@ -167,13 +109,13 @@ namespace AllReady.Controllers
             var result = await _userManager.ConfirmEmailAsync(user, code);
 
             // If the account confirmation was successful, then send the SiteAdmin an email to approve
-            // this user as a Tenant Admin
-            if(result.Succeeded)
+            // this user as a Organization Admin
+            if (result.Succeeded)
             {
                 var callbackUrl = Url.Action(nameof(SiteController.EditUser), "Site", new { area = "Admin", userId = user.Id }, protocol: HttpContext.Request.Scheme);
                 await _emailSender.SendEmailAsync(
                     _settings.DefaultAdminUsername,
-                    "Approve Tenant user account",
+                    "Approve organization user account",
                     "Please approve this account by clicking this <a href=\"" + callbackUrl + "\">link</a>");
             }
 
@@ -185,85 +127,6 @@ namespace AllReady.Controllers
         [HttpGet]
         [AllowAnonymous]
         public IActionResult ForgotPassword()
-        {
-            return View();
-        }
-
-        //
-        // POST: /Admin/ForgotPassword
-        [HttpPost]
-        [AllowAnonymous]
-        [ValidateAntiForgeryToken]
-        public async Task<IActionResult> ForgotPassword(ForgotPasswordViewModel model)
-        {
-            if (ModelState.IsValid)
-            {
-                var user = await _userManager.FindByNameAsync(model.Email);
-                if (user == null || !(await _userManager.IsEmailConfirmedAsync(user)))
-                {
-                    // Don't reveal that the user does not exist or is not confirmed
-                    return View("ForgotPasswordConfirmation");
-                }
-
-                // For more information on how to enable account confirmation and password reset please visit http://go.microsoft.com/fwlink/?LinkID=532713
-                // Send an email with this link
-                var code = await _userManager.GeneratePasswordResetTokenAsync(user);
-                var callbackUrl = Url.Action("ResetPassword", "Admin", new { userId = user.Id, code = code }, protocol: HttpContext.Request.Scheme);
-                await _emailSender.SendEmailAsync(model.Email, "Reset Password",
-                   "Please reset your password by clicking here: <a href=\"" + callbackUrl + "\">link</a>");
-                return View("ForgotPasswordConfirmation");
-            }
-
-            // If we got this far, something failed, redisplay form
-            return View(model);
-        }
-
-        //
-        // GET: /Admin/ForgotPasswordConfirmation
-        [HttpGet]
-        [AllowAnonymous]
-        public IActionResult ForgotPasswordConfirmation()
-        {
-            return View();
-        }
-
-        // GET: /Admin/ResetPassword
-        [HttpGet]
-        [AllowAnonymous]
-        public IActionResult ResetPassword(string code = null)
-        {
-            return code == null ? View("Error") : View();
-        }
-
-        // POST: /Account/ResetPassword
-        [HttpPost]
-        [AllowAnonymous]
-        [ValidateAntiForgeryToken]
-        public async Task<IActionResult> ResetPassword(ResetPasswordViewModel model)
-        {
-            if (!ModelState.IsValid)
-            {
-                return View(model);
-            }
-            var user = await _userManager.FindByNameAsync(model.Email);
-            if (user == null)
-            {
-                // Don't reveal that the user does not exist
-                return RedirectToAction(nameof(AdminController.ResetPasswordConfirmation), "Admin");
-            }
-            var result = await _userManager.ResetPasswordAsync(user, model.Code, model.Password);
-            if (result.Succeeded)
-            {
-                return RedirectToAction(nameof(AdminController.ResetPasswordConfirmation), "Admin");
-            }
-            AddErrors(result);
-            return View();
-        }
-
-        // GET: /Admin/ResetPasswordConfirmation
-        [HttpGet]
-        [AllowAnonymous]
-        public IActionResult ResetPasswordConfirmation()
         {
             return View();
         }

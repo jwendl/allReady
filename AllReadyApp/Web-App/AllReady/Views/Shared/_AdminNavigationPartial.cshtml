@@ -1,18 +1,21 @@
 ﻿@using System.Security.Claims
 @using AllReady.Security
 
-@if (User.IsUserType(UserType.SiteAdmin) || User.IsUserType(UserType.TenantAdmin))
+@if (User.IsUserType(UserType.SiteAdmin) || User.IsUserType(UserType.OrgAdmin))
 {
     <li class="dropdown dropdown-admin">
         <a class="dropdown-toggle" data-toggle="dropdown" href="#" role="button" aria-haspopup="true" aria-expanded="false">
             Admin <span class="caret"></span>
         </a>
         <ul class="dropdown-menu">
-            <li><a asp-route-area="Admin" asp-route-controller="Campaign" asp-route-action="Index">Campaigns</a></li>
-            <li><a asp-route-area="Admin" asp-route-controller="Tenant" asp-route-action="Index">Organizations</a></li>
             @if (User.IsUserType(UserType.SiteAdmin))
             {
-                <li><a asp-route-area="Admin" asp-route-controller="Skill" asp-route-action="Index">Skills</a></li>
+                <li><a asp-route-area="Admin" asp-route-controller="Organization" asp-route-action="Index">Organizations</a></li>
+            }
+            <li><a asp-route-area="Admin" asp-route-controller="Campaign" asp-route-action="Index">Campaigns</a></li>
+            <li><a asp-route-area="Admin" asp-route-controller="Skill" asp-route-action="Index">Skills</a></li>
+            @if (User.IsUserType(UserType.SiteAdmin))
+            {
                 <li><a asp-route-area="Admin" asp-route-controller="Site" asp-route-action="Index">Site Admin</a></li>
             }
         </ul>

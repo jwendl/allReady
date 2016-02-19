@@ -41,12 +41,13 @@
 
     <div class="form-horizontal">
         <div asp-validation-summary="ValidationSummary.ModelOnly" class="text-danger"></div>
-        @Html.ValidationSummary(true, "", new { @class = "text-danger" })
         <input type="hidden" asp-for="ActivityId" />
         <input type="hidden" asp-for="ActivityName" />
         <input type="hidden" asp-for="CampaignId" />
+        <input type="hidden" asp-for="TimeZoneId" />
         <input type="hidden" asp-for="CampaignName" />
-        <input type="hidden" asp-for="TenantId" />
+        <input type="hidden" asp-for="OrganizationId" />
+        <input type="hidden" asp-for="IgnoreTimeRangeWarning" />
         <div class="form-group">
             <label asp-for="CampaignName" class="control-label col-md-2"></label>
             <div class="col-md-10">
@@ -76,21 +77,23 @@
         <div class="form-group">
             <label asp-for="NumberOfVolunteersRequired" class="control-label col-md-2"></label>
             <div class="col-md-10">
-                <input asp-for="NumberOfVolunteersRequired" class="form-control"></input>
+                <input asp-for="NumberOfVolunteersRequired" class="form-control">
                 <span asp-validation-for="NumberOfVolunteersRequired" class="text-danger"></span>
             </div>
         </div>
         <div class="form-group">
             <label asp-for="StartDateTime" class="control-label col-md-2"></label>
             <div class="col-md-10">
-                <input asp-for="StartDateTime" class="form-control datepicker" />
+                <input asp-for="StartDateTime" class="form-control datetimepicker" />
+                <time-zone-name time-zone-id="@Model.TimeZoneId" class="text-muted"></time-zone-name>
                 <span asp-validation-for="StartDateTime" class="text-danger"></span>
             </div>
         </div>
         <div class="form-group">
             <label asp-for="EndDateTime" class="control-label col-md-2"></label>
             <div class="col-md-10">
-                <input asp-for="EndDateTime" class="form-control datepicker" />
+                <input asp-for="EndDateTime" class="form-control datetimepicker" />
+                <time-zone-name time-zone-id="@Model.TimeZoneId" class="text-muted"></time-zone-name>
                 <span asp-validation-for="EndDateTime" class="text-danger"></span>
             </div>
         </div>
@@ -101,15 +104,15 @@
                 <div data-bind="foreach: requiredSkills">
                     <div class="form-inline">
                         <select class="form-control" data-bind="attr: { name: ControlName($index) }, options: $root.availableSkills, optionsText: 'Name', optionsValue: 'Id', value: Id"></select>
-                        <span class="glyphicon glyphicon-info-sign" data-bind="visible: Description, tooltip: { title: Description, placement: 'top' }" aria-hidden="true"></span>
+                        <span class="fa fa-question-circle" data-bind="visible: Description, tooltip: { title: Description, placement: 'top' }" aria-hidden="true"></span>
                         <a href="#" data-bind="click: $root.deleteSkill" title="Delete required skill">
-                            <span class="glyphicon glyphicon-remove" aria-hidden="true"></span>
+                            <span class="fa fa-remove" aria-hidden="true"></span>
                             Delete
                         </a>
                     </div>
                 </div>
                 <a href="#" data-bind="click: addSkill" title="Add required skill">
-                    <span class="glyphicon glyphicon-plus" aria-hidden="true"></span>
+                    <span class="fa fa-plus" aria-hidden="true"></span>
                     Add
                 </a>
             </div>
@@ -117,8 +120,8 @@
 
         <div class="form-group">
             <div class="col-md-offset-2 col-md-10">
-                <button type="submit" class="btn" data-bind="enable: requiredSkills.isValid">Save</button>
-                <a class="btn" href="@cancelUrl">Cancel</a>
+                <button type="submit" class="btn btn-default" data-bind="enable: requiredSkills.isValid">Save</button>
+                <a class="btn btn-default" href="@cancelUrl">Cancel</a>
                 <span class="label label-danger" data-bind="visible: !requiredSkills.isValid()">"@Html.DisplayNameFor(m => m.RequiredSkills)" must be unique</span>
             </div>
         </div>

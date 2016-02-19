@@ -8,7 +8,6 @@ using System.Threading.Tasks;
 
 using AllReady.Models;
 using AllReady.Services;
-using AllReady.Areas.Admin.Controllers;
 
 namespace AllReady.Controllers
 {
@@ -49,17 +48,7 @@ namespace AllReady.Controllers
                 : "";
 
             var user = GetCurrentUser();
-            var model = new IndexViewModel
-            {
-                HasPassword = await _userManager.HasPasswordAsync(user),
-                PhoneNumber = await _userManager.GetPhoneNumberAsync(user),
-                TwoFactor = await _userManager.GetTwoFactorEnabledAsync(user),
-                Logins = await _userManager.GetLoginsAsync(user),
-                BrowserRemembered = await _signInManager.IsTwoFactorClientRememberedAsync(user),
-                AssociatedSkills = user.AssociatedSkills,
-                Name = user.Name
-            };
-            return View(model);
+            return View(await user.ToViewModel(_userManager, _signInManager));
         }
 
         // POST: /Manage/Index
@@ -67,20 +56,65 @@ namespace AllReady.Controllers
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Index(IndexViewModel model)
         {
+            var user = GetCurrentUser();
+
             if (!ModelState.IsValid)
             {
-                return View(model);
+                var viewModelWithInputs = await user.ToViewModel(_userManager, _signInManager);
+                viewModelWithInputs.Name = model.Name;
+                viewModelWithInputs.TimeZoneId = model.TimeZoneId;
+                viewModelWithInputs.AssociatedSkills = model.AssociatedSkills;
+                return View(viewModelWithInputs);
             }
-            var user = GetCurrentUser();
-            user.Name = model.Name;
+            var shouldRefreshSignin = false;
+            if (!string.IsNullOrEmpty(model.Name))
+            {
+                user.Name = model.Name;
+                await _userManager.RemoveClaimsAsync(user, User.Claims.Where(c => c.Type == Security.ClaimTypes.DisplayName));
+                await _userManager.AddClaimAsync(user, new Claim(Security.ClaimTypes.DisplayName, user.Name));
+                shouldRefreshSignin = true;                
+            }
+            if (user.TimeZoneId != model.TimeZoneId)
+            {
+                user.TimeZoneId = model.TimeZoneId;
+                await _userManager.RemoveClaimsAsync(user, User.Claims.Where(c => c.Type == Security.ClaimTypes.TimeZoneId));
+                await _userManager.AddClaimAsync(user, new Claim(Security.ClaimTypes.TimeZoneId, user.TimeZoneId));
+                shouldRefreshSignin = true;
+            }
+            
+
             user.AssociatedSkills.RemoveAll(usk => model.AssociatedSkills == null || !model.AssociatedSkills.Any(msk => msk.SkillId == usk.SkillId));
             if (model.AssociatedSkills != null)
             {
                 user.AssociatedSkills.AddRange(model.AssociatedSkills.Where(msk => !user.AssociatedSkills.Any(usk => usk.SkillId == msk.SkillId)));
             }
             user.AssociatedSkills?.ForEach(usk => usk.UserId = user.Id);
+
             await _dataAccess.UpdateUser(user);
+            if (shouldRefreshSignin)
+            {
+                await _signInManager.RefreshSignInAsync(user);
+            }
             return RedirectToAction(nameof(Index));
+        }
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> ResendEmailConfirmation()
+        {
+            var user = await _userManager.FindByIdAsync(User.GetUserId());
+            var code = await _userManager.GenerateEmailConfirmationTokenAsync(user);
+            var callbackUrl = Url.Action("ConfirmEmail", "Account", new { userId = user.Id, code = code }, protocol: HttpContext.Request.Scheme);
+            await _emailSender.SendEmailAsync(user.Email, "Confirm your allReady account",
+                "Please confirm your allReady account by clicking this link: <a href=\"" + callbackUrl + "\">link</a>");
+
+            return RedirectToAction(nameof(EmailConfirmationSent));
+        }
+
+        [HttpGet]
+        public IActionResult EmailConfirmationSent()
+        {
+            return View();
         }
 
         // GET: /Account/RemoveLogin
@@ -130,8 +164,21 @@ namespace AllReady.Controllers
             // Generate the token and send it
             var user = GetCurrentUser();
             var code = await _userManager.GenerateChangePhoneNumberTokenAsync(user, model.PhoneNumber);
-            await _smsSender.SendSmsAsync(model.PhoneNumber, "Your security code is: " + code);
+            await _smsSender.SendSmsAsync(model.PhoneNumber, "Your allReady account security code is: " + code);
             return RedirectToAction(nameof(VerifyPhoneNumber), new { PhoneNumber = model.PhoneNumber });
+        }
+
+        // POST: /Account/ResendPhoneNumberConfirmation
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> ResendPhoneNumberConfirmation(string phoneNumber)
+        {
+            var user = GetCurrentUser();
+            var code = await _userManager.GenerateChangePhoneNumberTokenAsync(user, phoneNumber);
+
+            await _smsSender.SendSmsAsync(phoneNumber, "Your allReady account security code is: " + code);
+
+            return RedirectToAction(nameof(VerifyPhoneNumber), new { PhoneNumber = phoneNumber });
         }
 
         // POST: /Manage/EnableTwoFactorAuthentication
@@ -241,6 +288,113 @@ namespace AllReady.Controllers
                 return View(model);
             }
             return RedirectToAction(nameof(Index), new { Message = ManageMessageId.Error });
+        }
+
+        // GET: /Manage/ChangeEmail
+        [HttpGet]
+        public IActionResult ChangeEmail()
+        {
+            return View();
+        }
+
+        // POST: /Account/ChangeEmail
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> ChangeEmail(ChangeEmailViewModel model)
+        {
+            if (!ModelState.IsValid)
+            {
+                return View(model);
+            }
+
+            var user = GetCurrentUser();
+            if (user != null)
+            {
+                if(!await _userManager.CheckPasswordAsync(user, model.Password))
+                {
+                    ModelState.AddModelError("Password", "The password supplied is not correct");
+                    return View(model);
+                }
+
+                var existingUser = await _userManager.FindByEmailAsync(model.NewEmail.Normalize());
+                if(existingUser != null)
+                {
+                    // The username/email is already registered
+                    ModelState.AddModelError("NewEmail", "The email supplied is already registered");
+                    return View(model);
+                }
+
+                user.PendingNewEmail = model.NewEmail;
+                await _userManager.UpdateAsync(user);
+
+                var token = await _userManager.GenerateChangeEmailTokenAsync(user, model.NewEmail);
+                var callbackUrl = Url.Action("ConfirmNewEmail", "Manage", new { token = token }, protocol: HttpContext.Request.Scheme);
+                await _emailSender.SendEmailAsync(user.Email, "Confirm your allReady account",
+                    "Please confirm your new email address for your allReady account by clicking this link: <a href=\"" + callbackUrl + "\">link</a>. Note that once confirmed your original email address will cease to be valid as your username.");
+
+                return RedirectToAction(nameof(EmailConfirmationSent));                
+            }
+
+            return RedirectToAction(nameof(Index), new { Message = ManageMessageId.Error });
+        }
+
+        // GET: /Manage/ConfirmNewEmail
+        [HttpGet]
+        public async Task<IActionResult> ConfirmNewEmail(string token)
+        {
+            if (token == null)
+            {
+                return View("Error");
+            }
+
+            var user = GetCurrentUser();
+            if (user == null)
+            {
+                return View("Error");
+            }
+
+            var result = await _userManager.ChangeEmailAsync(user, user.PendingNewEmail, token);
+
+            if(result.Succeeded)
+            {
+                await _userManager.SetUserNameAsync(user, user.PendingNewEmail);
+
+                user.PendingNewEmail = null;
+                await _userManager.UpdateAsync(user);
+            }
+
+            return RedirectToAction(nameof(Index), new { Message = ManageMessageId.ChangeEmailSuccess });
+        }
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> ResendChangeEmailConfirmation()
+        {
+            var user = GetCurrentUser();
+
+            if(string.IsNullOrEmpty(user.PendingNewEmail))
+            {
+                return View("Error");
+            }
+
+            var token = await _userManager.GenerateChangeEmailTokenAsync(user, user.PendingNewEmail);
+            var callbackUrl = Url.Action("ConfirmNewEmail", "Manage", new { token = token }, protocol: HttpContext.Request.Scheme);
+            await _emailSender.SendEmailAsync(user.Email, "Confirm your allReady account",
+                "Please confirm your new email address for your allReady account by clicking this link: <a href=\"" + callbackUrl + "\">link</a>. Note that once confirmed your original email address will cease to be valid as your username.");
+
+            return RedirectToAction(nameof(EmailConfirmationSent));
+        }
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> CancelChangeEmail()
+        {
+            var user = GetCurrentUser();
+
+            user.PendingNewEmail = null;
+            await _userManager.UpdateAsync(user);
+
+            return RedirectToAction(nameof(Index));
         }
 
         // GET: /Manage/SetPassword
@@ -354,6 +508,7 @@ namespace AllReady.Controllers
             AddPhoneSuccess,
             AddLoginSuccess,
             ChangePasswordSuccess,
+            ChangeEmailSuccess,
             SetTwoFactorSuccess,
             SetPasswordSuccess,
             RemoveLoginSuccess,

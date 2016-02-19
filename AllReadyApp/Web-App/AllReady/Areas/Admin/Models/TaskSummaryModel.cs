@@ -14,11 +14,15 @@ namespace AllReady.Areas.Admin.Models
         public int CampaignId { get; set; }
         [Display(Name = "Campaign")]
         public string CampaignName { get; set; }
-        public int TenantId { get; set; }
+        public int OrganizationId { get; set; }
         public string Name { get; set; }
         public string Description { get; set; }
+
+        public string TimeZoneId { get; set; }
+
         [Display(Name = "Start date")]
         public DateTimeOffset? StartDateTime { get; set; }
+        
         [Display(Name = "End date")]
         public DateTimeOffset? EndDateTime { get; set; }
 

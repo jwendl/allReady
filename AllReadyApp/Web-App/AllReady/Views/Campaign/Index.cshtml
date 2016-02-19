@@ -1,6 +1,6 @@
 ﻿@model IList<CampaignViewModel>
 @{
-    ViewData["Title"] = "All registered campaigns";
+    ViewData["Title"] = "All Registered Campaigns";
     @addTagHelper "*, Microsoft.AspNet.Mvc.TagHelpers"
 }
 <environment names="Development">
@@ -9,18 +9,6 @@
 <environment names="Staging,Production">
     <link rel="stylesheet" href="~/css/campaignStyle.css" asp-file-version="true" />
 </environment>
-
-<div class="row search-banner">
-    <div class="col-md-12 text-center">
-        <input type="search"
-               class="campaign-search "
-               placeholder="Search for campaigns using your zipcode"
-               data-bind="value: searchTerm, valueUpdate: 'afterkeydown', event: { keypress: handleEnter }" />
-        <a class="main-search-button" data-bind="click: searchCampaigns" title="Search for campaigns">
-            <img class="campaign-search-button" src="~/images/search-icon.png" alt="Search for campaigns" />
-        </a>
-    </div>
-</div>
 
 <div class="row">
     <div class="col-md-12 text-center">
@@ -45,9 +33,9 @@
                     <input type="text" class="form-control input-sm" data-bind="textInput: campaigns.searchTerm" placeholder="Search campaigns" />
                 </div>
                 <div class="form-group">
-                    <button type="button" class="btn btn-sm" data-bind="css: { active: campaigns.showOld }, click: campaigns.showOld.toggle">
+                    <button type="button" class="btn btn-default btn-sm" data-bind="css: { active: campaigns.showOld }, click: campaigns.showOld.toggle">
                         <i class="fa" data-bind="css: { 'fa-square-o': !campaigns.showOld(), 'fa-check-square-o': campaigns.showOld }"></i>
-                        Show Completed Campaigns
+                        Show Closed Campaigns
                     </button>
                     <span data-bind="text: '(' + total + ')' " ></span>
                 </div>

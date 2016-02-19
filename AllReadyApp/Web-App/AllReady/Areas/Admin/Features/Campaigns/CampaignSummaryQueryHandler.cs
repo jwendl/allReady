@@ -4,6 +4,7 @@ using AllReady.ViewModels;
 using MediatR;
 using System;
 using System.Collections.Generic;
+using Microsoft.Data.Entity;
 using System.Linq;
 using System.Threading.Tasks;
 
@@ -20,21 +21,46 @@ namespace AllReady.Areas.Admin.Features.Campaigns
         }
         public CampaignSummaryModel Handle(CampaignSummaryQuery message)
         {
+            CampaignSummaryModel result = null;
+
             var campaign = _context.Campaigns
-                .Select(c => new CampaignSummaryModel()
+                .AsNoTracking()
+                .Include(ci => ci.CampaignImpact)
+                .Include(mt => mt.ManagingOrganization)
+                .Include(l => l.Location).ThenInclude(p => p.PostalCode)
+                .Include(c => c.CampaignContacts).ThenInclude(tc => tc.Contact)
+                .SingleOrDefault(c => c.Id == message.CampaignId);
+
+            if (campaign != null)
+            {
+                result = new CampaignSummaryModel
                 {
-                    Id = c.Id,
-                    Name = c.Name,
-                    Description = c.Description,
-                    FullDescription = c.FullDescription,
-                    TenantId = c.ManagingTenantId,
-                    TenantName = c.ManagingTenant.Name,
-                    ImageUrl = c.ImageUrl,
-                    StartDate = c.StartDateTimeUtc,
-                    EndDate = c.EndDateTimeUtc
-                }).SingleOrDefault(c => c.Id == message.CampaignId);
-                    
-            return campaign;
+                    Id = campaign.Id,
+                    Name = campaign.Name,
+                    Description = campaign.Description,
+                    FullDescription = campaign.FullDescription,
+                    OrganizationId = campaign.ManagingOrganizationId,
+                    OrganizationName = campaign.ManagingOrganization.Name,
+                    ImageUrl = campaign.ImageUrl,
+                    TimeZoneId = campaign.TimeZoneId,
+                    StartDate = campaign.StartDateTime,
+                    EndDate = campaign.EndDateTime,
+                    Location = campaign.Location.ToEditModel(),
+                    CampaignImpact = campaign.CampaignImpact != null ? campaign.CampaignImpact : new CampaignImpact()
+                };
+                if (!campaign.CampaignContacts.Any())// Include isn't including
+                {
+                    campaign.CampaignContacts = _context.CampaignContacts.Include(c => c.Contact).Where(cc => cc.CampaignId == campaign.Id).ToList();
+                }
+                if (campaign.CampaignContacts?.SingleOrDefault(tc => tc.ContactType == (int)ContactTypes.Primary)?.Contact != null)
+                {
+                    result = (CampaignSummaryModel)campaign.CampaignContacts?.SingleOrDefault(tc => tc.ContactType == (int)ContactTypes.Primary)?.Contact.ToEditModel(result);
+                }
+
+            }
+
+            return result;
         }
+       
     }
 }

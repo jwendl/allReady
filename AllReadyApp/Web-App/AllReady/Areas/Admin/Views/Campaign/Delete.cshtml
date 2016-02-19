@@ -28,10 +28,10 @@
                     @Html.DisplayFor(model => model.Description)
                 </dd>
                 <dt>
-                    @Html.DisplayNameFor(model => model.TenantId)
+                    @Html.DisplayNameFor(model => model.OrganizationId)
                 </dt>
                 <dd>
-                    @Html.DisplayFor(model => model.TenantName)
+                    @Html.DisplayFor(model => model.OrganizationName)
                 </dd>
             </dl>
 
@@ -39,8 +39,8 @@
                 @Html.AntiForgeryToken()
 
                 <div class="form-actions no-color">
-                    <button type="submit" value="Delete" class="btn">Delete campaign</button> 
-                    <a asp-controller="Campaign" asp-action="Details" asp-route-id="@Model.Id" asp-route-area="Admin" class="btn">Cancel</a>
+                    <button type="submit" value="Delete" class="btn btn-default">Delete campaign</button> 
+                    <a asp-controller="Campaign" asp-action="Details" asp-route-id="@Model.Id" asp-route-area="Admin" class="btn btn-default">Cancel</a>
                 </div>
             }
         </div>

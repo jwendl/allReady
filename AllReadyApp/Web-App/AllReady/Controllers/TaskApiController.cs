@@ -31,9 +31,9 @@ namespace AllReady.Controllers
                 return true;
             }
 
-            if (User.IsUserType(UserType.TenantAdmin))
+            if (User.IsUserType(UserType.OrgAdmin))
             {
-                //TODO: Modify to check that user is tenant admin for tenant of task
+                //TODO: Modify to check that user is organization admin for organization of task
                 return true;
             }
 
@@ -112,8 +112,8 @@ namespace AllReady.Controllers
             // Changing all the potential properties that the VM could have modified.
             task.Name = value.Name;
             task.Description = value.Description;
-            task.StartDateTimeUtc = value.StartDateTime.Value.UtcDateTime;
-            task.EndDateTimeUtc = value.EndDateTime.Value.UtcDateTime;
+            task.StartDateTime = value.StartDateTime.Value.UtcDateTime;
+            task.EndDateTime = value.EndDateTime.Value.UtcDateTime;
 
             await _allReadyDataAccess.UpdateTaskAsync(task);
         }

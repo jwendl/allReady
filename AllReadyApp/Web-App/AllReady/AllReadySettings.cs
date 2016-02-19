@@ -5,12 +5,14 @@ namespace AllReady
 {
     public class AzureStorageSettings
     {
-        public string StorageAccount { get; set; }
+        public string AzureStorage { get; set; }
+        public bool EnableAzureQueueService { get; set; }
     }
 
     public class GeneralSettings
     {
         public string SiteBaseUrl { get; set; }
+        public string DefaultTimeZone { get; set; }
     }
 
     public class DatabaseSettings
@@ -28,7 +30,7 @@ namespace AllReady
         public string DefaultAdminUsername { get; set; }
         public string DefaultAdminPassword { get; set; }
         public string DefaultUsername { get; set; }
-        public string DefaultTenantUsername { get; set; }
+        public string DefaultOrganizationUsername { get; set; }
         public string DefaultFromEmailAddress { get; set; }
         public string DefaultFromDisplayName { get; set; }
         public string InsertSampleData { get; set; }

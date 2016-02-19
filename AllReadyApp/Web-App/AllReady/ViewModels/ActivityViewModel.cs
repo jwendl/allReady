@@ -23,22 +23,19 @@ namespace AllReady.ViewModels
                 CampaignName = activity.Campaign.Name;
             }
 
-            if (activity.Tenant != null)
-            {
-                TenantId = activity.Tenant.Id;
-                TenantName = activity.Tenant.Name;
-            }
-
             Title = activity.Name;
             Description = activity.Description;
 
-            StartDateTime = new DateTimeOffset(activity.StartDateTimeUtc, TimeSpan.Zero);
-            EndDateTime = new DateTimeOffset(activity.EndDateTimeUtc, TimeSpan.Zero);
+            TimeZoneId = activity.Campaign.TimeZoneId;
+            StartDateTime = activity.StartDateTime;
+            EndDateTime = activity.EndDateTime;
 
             if (activity.Location != null)
             {
                 Location = new LocationViewModel(activity.Location);
             }
+
+            IsClosed = EndDateTime.UtcDateTime < DateTimeOffset.UtcNow;
 
             ImageUrl = activity.ImageUrl;
 
@@ -51,13 +48,14 @@ namespace AllReady.ViewModels
         }
 
         public int Id { get; set; }
-        public int TenantId { get; set; }
-        public string TenantName { get; set; }
+        public int OrganizationId { get; set; }
+        public string OrganizationName { get; set; }
         public int CampaignId { get; set; }
         public string CampaignName { get; set; }
         public string Title { get; set; }
         public string Description { get; set; }
         public string ImageUrl { get; set; }
+        public string TimeZoneId { get; set; }
         public DateTimeOffset StartDateTime { get; set; }
         public DateTimeOffset EndDateTime { get; set; }
         public LocationViewModel Location { get; set; }
@@ -68,6 +66,8 @@ namespace AllReady.ViewModels
         public List<Skill> RequiredSkills { get; set; }
         public List<Skill> UserSkills { get; set; }
         public int NumberOfVolunteersRequired { get; set; }
+        public ActivitySignupViewModel SignupModel { get; set; }
+        public bool IsClosed { get; set; }
     }
 
     public static class ActivityViewModelExtension
@@ -102,64 +102,25 @@ namespace AllReady.ViewModels
             return activities.Select(activity => new ActivityViewModel(activity));
         }
 
-        /// <summary>
-        /// Returns null when there is no matching campaign for the campaign Id.
-        /// </summary>
-        public static Activity ToModel(this ActivityViewModel activity, IAllReadyDataAccess dataAccess)
-        {
-            var campaign = dataAccess.GetCampaign(activity.CampaignId);
-
-            if (campaign == null)
-                return null;
-
-            Activity newActivity = new Activity()
-            {
-                Id = activity.Id,
-                Campaign = campaign,
-                EndDateTimeUtc = activity.EndDateTime.UtcDateTime,
-                StartDateTimeUtc = activity.StartDateTime.UtcDateTime,
-                Location = new Location()
-                {
-                    Address1 = activity.Location.Address1,
-                    Address2 = activity.Location.Address2,
-                    City = activity.Location.City,
-                    Country = "US",
-                    PostalCode = activity.Location.PostalCode,
-                    State = activity.Location.State
-                },
-                Name = activity.Title
-            };
-            var tasks = new List<AllReadyTask>();
-
-            foreach (TaskViewModel tvm in activity.Tasks)
-            {
-                tasks.Add(new AllReadyTask()
-                {
-                    Activity = newActivity,
-                    Name = tvm.Name,
-                    Id = tvm.Id,
-                    Description = tvm.Description
-                });
-            }
-            newActivity.Tasks = tasks;
-            return newActivity;
-        }
-
-        public static IEnumerable<Activity> ToModel(this IEnumerable<ActivityViewModel> activities, IAllReadyDataAccess dataAccess)
-        {
-            return activities.Select(activity => activity.ToModel(dataAccess));
-        }
-
         public static ActivityViewModel WithUserInfo(this ActivityViewModel viewModel, Activity activity, ClaimsPrincipal user, IAllReadyDataAccess dataAccess)
         {
             if (user.IsSignedIn())
             {
                 var userId = user.GetUserId();
+                var appUser = dataAccess.GetUser(userId);
                 viewModel.UserId = userId;
-                viewModel.UserSkills = dataAccess.GetUser(userId)?.AssociatedSkills?.Select(us => us.Skill).ToList();
+                viewModel.UserSkills = appUser?.AssociatedSkills?.Select(us => us.Skill).ToList();
                 viewModel.IsUserVolunteeredForActivity = dataAccess.GetActivitySignups(viewModel.Id, userId).Any();
                 var assignedTasks = activity.Tasks.Where(t => t.AssignedVolunteers.Any(au => au.User.Id == userId)).ToList();
                 viewModel.Tasks = new List<TaskViewModel>(assignedTasks.Select(data => new TaskViewModel(data, userId)).OrderBy(task => task.StartDateTime));
+                viewModel.SignupModel = new ActivitySignupViewModel()
+                {
+                    ActivityId = viewModel.Id,
+                    UserId = userId,
+                    Name = appUser.Name,
+                    PreferredEmail = appUser.Email,
+                    PreferredPhoneNumber = appUser.PhoneNumber
+                };
             }
             else
             {

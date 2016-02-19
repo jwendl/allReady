@@ -3,21 +3,20 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.Data.Entity;
-using Microsoft.Data.Entity.Infrastructure;
 using Microsoft.AspNet.Identity.EntityFramework;
-using Microsoft.Framework.Configuration;
+using Microsoft.Extensions.Configuration;
 using Microsoft.AspNet.Hosting;
 using Microsoft.Data.Entity.Metadata.Builders;
+using Microsoft.Data.Entity.Metadata;
 
 namespace AllReady.Models
 {
     public class AllReadyContext : IdentityDbContext<ApplicationUser>
     {
-        public DbSet<Tenant> Tenants { get; set; }
+        public virtual DbSet<Organization> Organizations { get; set; }
         public DbSet<ActivitySignup> ActivitySignup { get; set; }
         public DbSet<Campaign> Campaigns { get; set; }
         public DbSet<CampaignImpact> CampaignImpacts { get; set; }
-        public DbSet<CampaignImpactType> CampaignImpactTypes { get; set; }
         public DbSet<Activity> Activities { get; set; }
         public DbSet<ActivitySkill> ActivitySkills { get; set; }
         public DbSet<Location> Locations { get; set; }
@@ -26,14 +25,20 @@ namespace AllReady.Models
         public DbSet<TaskSkill> TaskSkills { get; set; }
         public DbSet<TaskSignup> TaskSignups { get; set; }
         public DbSet<Resource> Resources { get; set; }
-        public DbSet<Skill> Skills { get; set; }
+        public virtual DbSet<Skill> Skills { get; set; }
         public DbSet<UserSkill> UserSkills { get; set; }
+
+        public DbSet<Contact> Contacts { get; set; }
+        public DbSet<OrganizationContact> OrganizationContacts { get; set; }
+        public DbSet<CampaignContact> CampaignContacts { get; set; }
+        public DbSet<ClosestLocation> ClosestLocations { get; set; }
+        public DbSet<PostalCodeGeoCoordinate> PostalCodeGeoCoordinates { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
 
-            modelBuilder.UseSqlServerIdentityColumns();
+            modelBuilder.ForSqlServerUseIdentityColumns();
 
             Map(modelBuilder.Entity<Campaign>());
             Map(modelBuilder.Entity<CampaignSponsors>());
@@ -48,6 +53,45 @@ namespace AllReady.Models
             Map(modelBuilder.Entity<Skill>());
             Map(modelBuilder.Entity<UserSkill>());
             Map(modelBuilder.Entity<ApplicationUser>());
+            Map(modelBuilder.Entity<Organization>());
+            Map(modelBuilder.Entity<OrganizationContact>());
+            Map(modelBuilder.Entity<CampaignContact>());
+            Map(modelBuilder.Entity<Contact>());
+            Map(modelBuilder.Entity<CampaignImpact>());
+            Map(modelBuilder.Entity<ClosestLocation>());
+            Map(modelBuilder.Entity<PostalCodeGeoCoordinate>());
+        }
+
+        private void Map(EntityTypeBuilder<CampaignImpact> builder)
+        {
+            builder.Ignore(c => c.PercentComplete);
+        }
+
+        private void Map(EntityTypeBuilder<CampaignContact> builder)
+        {
+            builder.HasKey(tc => new { tc.CampaignId, tc.ContactId, tc.ContactType });
+            builder.HasOne(tc => tc.Contact);
+            builder.HasOne(tc => tc.Campaign);
+        }
+
+        private void Map(EntityTypeBuilder<Contact> builder)
+        {
+            builder.HasMany(c => c.OrganizationContacts);
+            builder.HasMany(c => c.CampaignContacts);
+        }
+
+        private void Map(EntityTypeBuilder<OrganizationContact> builder)
+        {
+            builder.HasKey(tc => new { tc.OrganizationId, tc.ContactId, tc.ContactType});
+            builder.HasOne(tc => tc.Contact);
+            builder.HasOne(tc => tc.Organization);
+        }
+
+        private void Map(EntityTypeBuilder<Organization> builder)
+        {
+            builder.HasOne(t => t.Location);
+            builder.HasMany(t => t.OrganizationContacts);
+            builder.Property(t => t.Name).IsRequired();
         }
 
         private void Map(EntityTypeBuilder<PostalCodeGeo> builder)
@@ -68,9 +112,10 @@ namespace AllReady.Models
         private void Map(EntityTypeBuilder<AllReadyTask> builder)
         {
             builder.HasOne(t => t.Activity);
-            builder.HasOne(t => t.Tenant);
+            builder.HasOne(t => t.Organization);
             builder.HasMany(t => t.AssignedVolunteers);
             builder.HasMany(t => t.RequiredSkills).WithOne(ts => ts.Task);
+            builder.Property(p => p.Name).IsRequired();
         }
 
         private void Map(EntityTypeBuilder<TaskSkill> builder)
@@ -88,12 +133,12 @@ namespace AllReady.Models
 
         private void Map(EntityTypeBuilder<Activity> builder)
         {
-            builder.HasOne(a => a.Tenant);
             builder.HasOne(a => a.Campaign);
             builder.HasOne(a => a.Location);
             builder.HasMany(a => a.Tasks);
             builder.HasMany(a => a.UsersSignedUp);
             builder.HasMany(a => a.RequiredSkills).WithOne(acsk => acsk.Activity);
+            builder.Property(p => p.Name).IsRequired();
         }
 
         private void Map(EntityTypeBuilder<ActivitySkill> builder)
@@ -104,20 +149,23 @@ namespace AllReady.Models
         private void Map(EntityTypeBuilder<Skill> builder)
         {
             builder.HasOne(s => s.ParentSkill);
+            builder.Ignore(s => s.HierarchicalName);
         }
 
         private void Map(EntityTypeBuilder<CampaignSponsors> builder)
         {
             builder.HasOne(s => s.Campaign)
-                   .WithMany(c => c.ParticipatingTenants);
-            builder.HasOne(s => s.Tenant);
+                   .WithMany(c => c.ParticipatingOrganizations);
+            builder.HasOne(s => s.Organization);
         }
 
         private void Map(EntityTypeBuilder<Campaign> builder)
         {
-            builder.HasOne(c => c.ManagingTenant);
+            builder.HasOne(c => c.ManagingOrganization);
             builder.HasOne(c => c.CampaignImpact);
             builder.HasMany(c => c.Activities);
+            builder.HasOne(t => t.Location);
+            builder.HasMany(t => t.CampaignContacts);
             builder.Property(a => a.Name).IsRequired();
         }
 
@@ -129,6 +177,16 @@ namespace AllReady.Models
         private void Map(EntityTypeBuilder<UserSkill> builder)
         {
             builder.HasKey(us => new { us.UserId, us.SkillId });
+        }
+
+        private void Map(EntityTypeBuilder<ClosestLocation> builder)
+        {
+            builder.HasKey(us => new { us.PostalCode });
+        }
+
+        private void Map(EntityTypeBuilder<PostalCodeGeoCoordinate> builder)
+        {
+            builder.HasKey(us => new { us.Latitude, us.Longitude });
         }
     }
 }

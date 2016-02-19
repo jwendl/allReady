@@ -8,7 +8,7 @@ using Microsoft.Data.Entity;
 namespace AllReady.Models
 {
     public partial class AllReadyDataAccessEF7 : IAllReadyDataAccess
-    {        
+    {
         IEnumerable<Activity> IAllReadyDataAccess.Activities
         {
             get
@@ -16,12 +16,12 @@ namespace AllReady.Models
                 return _dbContext.Activities
                                 .Include(a => a.Location)
                                 .Include(a => a.Location.PostalCode)
-                                .Include(a => a.Tenant)
                                 .Include(a => a.Campaign)
+                                .Include(a => a.Campaign.ManagingOrganization)
                                 .Include(a => a.Tasks)
                                 .Include(a => a.RequiredSkills)
                                 .Include(a => a.UsersSignedUp)
-                                .OrderBy(a => a.EndDateTimeUtc)
+                                .OrderBy(a => a.EndDateTime)
                                 .ToList();
             }
         }
@@ -52,7 +52,6 @@ namespace AllReady.Models
             return _dbContext.Activities
                 .Include(a => a.Location)
                 .Include(a => a.Location.PostalCode)
-                .Include(a => a.Tenant)
                 .Include(a => a.Campaign)
                 .Include(a => a.RequiredSkills).ThenInclude(rs => rs.Skill).ThenInclude(s => s.ParentSkill)
                 .Include(a => a.Tasks).ThenInclude(t => t.AssignedVolunteers).ThenInclude(tu => tu.User)
@@ -60,9 +59,9 @@ namespace AllReady.Models
                 .SingleOrDefault(a => a.Id == activityId);
         }
 
-        int IAllReadyDataAccess.GetManagingTenantId(int activityId)
+        int IAllReadyDataAccess.GetManagingOrganizationId(int activityId)
         {
-            return _dbContext.Activities.Where(a => a.Id == activityId).Select(a => a.Campaign.ManagingTenantId).FirstOrDefault();
+            return _dbContext.Activities.Where(a => a.Id == activityId).Select(a => a.Campaign.ManagingOrganizationId).FirstOrDefault();
         }
 
         IEnumerable<ActivitySignup> IAllReadyDataAccess.GetActivitySignups(int activityId, string userId)
@@ -70,9 +69,10 @@ namespace AllReady.Models
             return _dbContext.ActivitySignup
                         .Include(x => x.User)
                         .Include(x => x.Activity)
-                        .ToArray()
+                        .Include(x => x.Activity.Campaign)                        
                         .Where(x => x.Activity.Id == activityId && x.User.Id == userId)
-                        .OrderBy(x => x.Activity.StartDateTimeUtc);
+                        .OrderBy(x => x.Activity.StartDateTime)
+                        .ToArray();
         }
 
         IEnumerable<ActivitySignup> IAllReadyDataAccess.GetActivitySignups(string userId)
@@ -80,9 +80,10 @@ namespace AllReady.Models
             return _dbContext.ActivitySignup
                         .Include(x => x.User)
                         .Include(x => x.Activity)
-                        .ToArray()
+                        .Include(x => x.Activity.Campaign)                        
                         .Where(x => x.User.Id == userId)
-                        .OrderBy(x => x.Activity.StartDateTimeUtc);
+                        .OrderBy(x => x.Activity.StartDateTime)
+                        .ToArray();
         }
 
         IEnumerable<TaskSignup> IAllReadyDataAccess.GetTasksAssignedToUser(int activityId, string userId)
@@ -90,10 +91,11 @@ namespace AllReady.Models
             var unfilteredTasks = _dbContext.TaskSignups
                 .Include(ts => ts.Task)
                 .ThenInclude(t => t.Activity)
-                .Include(ts => ts.User)
+                .ThenInclude(t => t.Campaign)
+                .Include(ts => ts.User)                
                 .ToList();
 
-            var finalTasks = unfilteredTasks.Where(ts => ts.Task.Activity.Id == activityId && ts.User.Id == userId).ToList();
+            var finalTasks = unfilteredTasks.Where(ts => ts.Task.Activity.Id == activityId && ts.User.Id == userId && !ts.Task.Activity.Campaign.Locked).ToList();
 
             return finalTasks;
         }
@@ -102,6 +104,12 @@ namespace AllReady.Models
             var resources = from c in _dbContext.Resources
                             select c;
             return resources;
+        }
+
+        Task IAllReadyDataAccess.UpdateCampaign(Campaign value)
+        {
+            _dbContext.Campaigns.Update(value);
+            return _dbContext.SaveChangesAsync();
         }
     }
 }
